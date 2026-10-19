@@ -3,6 +3,9 @@ fastapi : 빠르고 간편한 파이선 프레임워크
 uvicorn : 서버를 실행 시켜주는도구
 pydantic : 프론트엔드에서 넘어온 메세지 형식이 맞는지 검사
 '''
+import os
+
+from dotenv import load_dotenv
 
 '''
 FastAPI 라이브러리에서 FastAPI 클래스를 가져오고
@@ -25,6 +28,23 @@ Pydantic 라이브러리에서 BaseModel 클래스를 가져옵니다
 '''
 
 from pydantic import BaseModel
+from groq import Groq
+from google import genai
+from google.genai import types
+load_dotenv()
+
+# GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# if not GROQ_API_KEY:
+#     print("warning: .env 파일에서 api키를 찾을 수 없음!!!!!")
+if not GEMINI_API_KEY:
+    raise RuntimeError(
+        ".env 파일에서 GEMINI_API_KEY를 찾을 수 없습니다."
+    )
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+# 사용할 Gemini 모델
+MODEL_NAME = os.getenv("GEMINI_LIVE_MODEL")
 
 app = FastAPI()
 
@@ -69,9 +89,48 @@ response_model=ChatResponse는
 async def chat_endpoint(request: ChatRequest):
     #request객체에서 사용자가 보낸 메세지 텍스트만 꺼내 변수에 저장
     user_message = request.message
-    #open ai를 여기에..
-    temp_reply = f"사용자님이 \"{user_message}\"라고 말씀하셨군요! 파이선 백엔드가 메세지를 잘 받았습니다"
-    #ChatResponse객체를 생성해서 반환
-    return ChatResponse(reply=temp_reply)
 
-#구동 명령어 uvicorn main:app --reload
+    system_prompt = (
+        "당신은 서울 노원구(노원역 문화의거리, 공릉동 경춘선숲길, 석계역, 수락산, 마들역, 중계역 등)의 "
+        "맛집을 잘 아는 친절한 맛집 추천 AI 에이전트입니다. "
+        "사용자가 질문을 하면 노원구 내의 실제 유명한 식당 이름, 위치, 대표 메뉴, "
+        "분위기나 특징을 포함해 친근하고 보기 쉽게 답변해 주세요. "
+        "반드시 완벽하고 자연스러운 한국어로만 답변하세요."
+    )
+
+    try:
+        print(f"사용자 질문 수신: {user_message} -> Gemini 응답 요청 중…")
+        # chat_completion = client.chat.completions.create(
+        #     model = "llama-3.3-70b-versatile",
+        #     messages = [
+        #         {"role": "system", "content": system_prompt},
+        #         {"role": "user", "content": user_message},
+        #     ],
+        #     temperature = 0.6,
+        # )
+        response = await client.aio.models.generate_content(
+            model=MODEL_NAME,
+            contents=user_message,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.6,
+            ),
+        )
+
+        # AI가 생성한 답변
+        ai_reply = response.text
+        if not ai_reply:
+            ai_reply = "죄송합니다. 응답을 생성하지 못했습니다."
+        print("Gemini 응답 완료")
+    except Exception as e:
+        print(f"Gemini AI 호출 중 에러 발생: {e}")
+        ai_reply = (
+            "죄송합니다. 현재 AI 응답을 가져오는 중 문제가 발생했습니다. "
+            "GEMINI_API_KEY 설정과 서버 콘솔을 확인해 주세요."
+        )
+
+    return ChatResponse(reply=ai_reply)
+
+#구동 명령어
+# source .venv/bin/activate
+# uvicorn main:app --reload --port 8000

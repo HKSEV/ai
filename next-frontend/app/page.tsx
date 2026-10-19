@@ -17,6 +17,7 @@ import { // Material
   MDBBtn,
   MDBSpinner,
 } from "mdb-react-ui-kit";
+import Markdown from "react-markdown";
 
 // 메시지 타입 정의
 interface Message {
@@ -171,10 +172,13 @@ export default function Home() {
                 color:msg.sender === "user" ? "white" : "black",
                 maxWidth:"70%"
               }}>
-                <p className="small mb-0"
+                {/* <p className="small mb-0"
                 style={{lineHeight:"1.5", whiteSpace:"pre-wrap"}}>
                   {msg.text}
-                </p>
+                </p> */}
+                <div className="small mb-0" style={{ lineHeight: "1.6" }}>
+                  <Markdown>{msg.text}</Markdown>
+                </div>
               </div>
             </div>
           ))}
@@ -202,13 +206,20 @@ export default function Home() {
         {/* 입력 영역 */}
         <MDBCardFooter
         className="text-muted d-flex justify-content-start align-items-center p-3">
-          <input type="text" className="form-control form-control-lg"
-          placeholder="메시지를 입력하세요..." value={inputText}
+          <input
+          type="text"
+          className="form-control form-control-lg"
+          placeholder="메시지를 입력하세요..."
+          value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          onKeyPress={handleKeyPress} style={{borderRadius:"10px"}}/>
-          <MDBBtn color="primary" className="ms-3"
+          onKeyPress={handleKeyPress}
+          style={{borderRadius:"10px"}}/>
+          <MDBBtn
+          color="primary"
+          className="ms-3"
           style={{borderRadius:"10px", minWidth:"100px"}}
-          onClick={handleSend} disabled={isLoading}>
+          onClick={handleSend}
+          disabled={isLoading}>
             <MDBIcon fas icon="paper-plane" className="me-2"/>전송
           </MDBBtn>
         </MDBCardFooter>
