@@ -5,3 +5,7 @@ python -m streamlit run app.py --server.port 8000
 
 -- 프론트엔드
 npm install react-markdown --legacy-peer-deps
+npm install -D tailwindcss postcss autoprefixer --legacy-peer-deps
+npx tailwindcss init -p
+npm install @reduxjs/toolkit react-redux --legacy-peer-deps
+npm install @js-temporal/polyfill --legacy-peer-deps

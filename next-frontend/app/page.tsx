@@ -1,229 +1,227 @@
-/*
-Nextjs 13버전 이상에서 이 파일이 클라이언트(브라우저)
-측에서 실행되는 컴포넌트임을 명시
-React의 useState, useEffect 같은 훅을 사용하려면 필요
-*/
-"use client"
+"use client";
 
-// 리액트 라이브러리에서 기본 기능과 상태관리(useState), 참조(useRef), 생명주기(useEffect) 훅 가져오기
-import React, { useState, useRef, useEffect } from "react"
-import { // Material 
-  MDBContainer,
-  MDBCard,
-  MDBCardHeader,
-  MDBCardBody,
-  MDBCardFooter,
-  MDBIcon,
-  MDBBtn,
-  MDBSpinner,
-} from "mdb-react-ui-kit";
-import Markdown from "react-markdown";
+import React, { useRef, useEffect, useCallback } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import ReactMarkdown from "react-markdown";
+import { Temporal } from "@js-temporal/polyfill";
+import { RootState, AppDispatch } from "@/store/store";
+import { setInputText, setIsLoading, setShowMap, addMessage } from "@/store/chatSlice";
 
-// 메시지 타입 정의
-interface Message {
-  id: number,
-  text: string,
-  sender: "user" | "ai";
-}
+export default function Chat() {
+  const dispatch = useDispatch<AppDispatch>();
+  const {messages, inputText, isLoading, showMap} = useSelector(
+    (state: RootState) => state.chat
+  );
 
-export default function Home() {
-  // 사용자가 입력창에 적고 있는 글자를 저장하는 상태(State)
-  const [inputText, setInputText] = useState("");
-  // AI가 답변을 생각하는 중(로딩 중)인지 여부를 저장하는 상태
-  const [isLoading, setIsLoading] = useState(false); // 로딩상태 추가
-  // 채팅 화면에 보여줄 메시지드르이 목록을 배열로 저장하는 상태
-  const [messages, setMessages] = useState<Message[]>([
-    // 화면이 처음 커졌을 때 보여줄 기본 AI 인사말을 설정
-  {
-    id: 1,
-    text: "안녕하세요! 노원구 맛집 AI 에이전트입니다. 어떤 맛집을 찾고 계신가요?",
-    sender: "ai",
-  }]);
-
-  /*
-  채팅이 길어질 때 가장 최신 메시지(맨 아래)로 자동 스크롤하기 위해
-  화면의 특정 HTML요소를 가리키는 참조(Ref)를 만듦
-  */
+  // 채팅 내용 자동 스크롤을 위한 DOM 참조 변수
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  /*
-  특정 상황에서 자동으로 실행되는 함수 useEffect를 넣음
-  여기서는 messages 배열이 변경될 때마다(즉 새 메시지가 추가될 때마다) 실행
-  */
+  // 새 메세지가 추가될 때마다 가장 최신 메세지로(맨아래)로 부드럽게 스크롤을 이동
   useEffect(() => {
-    // messagesEndRef가 가리키는 화면 요소(맨 아래 빈 div)로 부드럽게(smooth) 스크롤
     messagesEndRef.current?.scrollIntoView({behavior: "smooth"});
   }, [messages]);
 
-  // 사용자가 전송 버튼을 누르거나 엔터키를 쳤을 때 실행되는 비동기 함수
-  const handleSend = async () => {
-    /*
-    입력창의 양쪽 공백을 제거(trim)했을 때 아무 글자도 없으면
-    함수를 종료(빈 메시지 방지)
-    */
-    if (!inputText.trim())
-      return;
+  /*
+    [useCallback 훅 적용]
+    사용자가 전송버튼을 누르거나 엔터키를 칠 때
+    실행되는 비동기 전송 함수
+    불필요한 함수 재생성 방지
+  */
+const handleSend = useCallback(async () => {
+  // 입력된 텍스트의 양쪽 공백을 제거했을 때 빈 값이면 함수 실행 중지
+  if (!inputText.trim())
+    return;
 
-    // 사용자 메시지 추가
-    const newUserMessage: Message = {
-      id: Date.now(), // 현재 시간을 밀리초로 가져와 고유한 ID로 사용
-      text: inputText, // 사용자가 입력한 텍스트
-      sender: "user" // 보낸 사람은 "사용자"
-    };
-    // 기존 메시지 배열(prev)의 끝에 방금 만든 사용자 메시지를 추가하여 화면을 업데이트
-    setMessages((prev) => [...prev, newUserMessage]);
-    // 메시지를 화면에 추가했으니 입력창은 다시 빈칸으로 비움
-    setInputText("");
-    setIsLoading(true); // AI 응답 대기 상태로 변경
-
-    // 여기에 추후 파이썬 백엔드 api가 들어감
-    try {
-      const response = await fetch("http://localhost:8000/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        // 자바스크립트 객체({ message: ... })를 JSON 문자열로 변환하여 보냄
-        body: JSON.stringify({message: newUserMessage.text}),
-      });
-      // 서버에서 온 응답상태가 정상(200번대)이 아니면 에러를 발생
-      if (!response.ok)
-        throw new Error("서버 에러가 발생했습니다");
-
-      // 서버가 정상적으로 보내준 JSON 데이터를 자바스크립트 객체롤 변환(파싱)
-      const data = await response.json();
-
-      // 백엔드에서 보내준 답변(data.reply)을 이용해 AI메시지 객체를 만들고 화면에 추가
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now(), text: data.reply, sender: "ai" },
-      ]);
-
-      /*
-      파이썬 백엔드 서버(FastAPI)로 데이터를 보냄(POST 요청)
-      fetch 함수는 네트워크 통신을 담당하며, await를 써서 응답이
-      올 때까지 기다림
-      */
-    }
-    catch(err) {
-      // 통신 중 에러(서버 꺼짐, 인터넷 끊김 등)가 발생하면 콘솔에 에러를 출력
-      console.error("통신에러: ", err);
-      // 사용자에게 서버와 연결할 수 없다는 안내 메시지를 AI가 말하는 것처럼 화면에 띄움
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now(),
-          text: "백엔드 서버와 연결할 수 없음 파이썬 서버(8000)가 켜져있는지 확인 요망",
-          sender: "ai" },
-      ])
-    }
-    finally {
-      setIsLoading(false);
-    };
-
-    // // 임시 AI응답(나중에 백엔드 연동 후 삭제)
-    // setTimeout(() => {
-    //   setMessages((prev) => [
-    //     ...prev,
-    //     { id: Date.now(),
-    //       text: "백엔드 연결 전입니다. 조금만 기다려 주세요.",
-    //       sender: "ai" }
-    //   ]);
-    // }, 1000);
+  // 1. 사용자가 입력한 쿼리 저장 및 메세지 객체 생성
+  const userQuery = inputText;
+  const uniqueId = Temporal.Now.instant().epochMilliseconds;
+  const newUserMessage = {
+    id: uniqueId,
+    text: userQuery,
+    sender: "user" as const,
   };
 
-  // 사용자가 입력창에 키보드를 누를 때마다 실행되는 함수
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // 누른 키가 "Enter"이고 현재 로딩중이 아닐 때만 전송(handleSend 함수 실행)
-    if (e.key === "Enter")
-      handleSend();
-  };
+  // 2. Redux 액션을 통해 화면에 사용자 메세지
+  // 추가 및 입력창 초기화, 로딩 시작
+  dispatch(addMessage(newUserMessage));
+  dispatch(setInputText(""));
+  dispatch(setIsLoading(true));
 
-  return(
-    <MDBContainer className="py-5" style={{maxWidth:"800px"}}>
-      <MDBCard style={{borderRadius:"15px", height:"80vh",
-      display:"flex", flexDirection:"column"}}>
-        {/* 헤더 영역 */}
-        <MDBCardHeader
-        className="d-flex justify-content-between align-items-center p-3 text-white"
-        style={{borderTopLeftRadius:"15px", borderTopRightRadius:"15px",
-          backgroundColor:"#3F51B5"
-        }}>
-          <div className="d-flex align-items-center">
-            <MDBIcon fas icon="robot" size="lg" className="me-2"/>
-            <h5 className="mb-0 fw-bold text-black">노원구 맛집 AI</h5>
+  // [지능형 분기 처리] 질문 내용에 장소 관련 키워드가 포함되어 있는지 검사
+  const lowerQuery = userQuery.toLowerCase();
+  const isLocationQuery = lowerQuery.includes("맛집") ||
+    lowerQuery.includes("학원") ||
+    lowerQuery.includes("식당") ||
+    lowerQuery.includes("카페") ||
+    lowerQuery.includes("추천") ||
+    lowerQuery.includes("극장") ||
+    lowerQuery.includes("근처");
+
+  // 장소 관련 질문이면 지도 창을 활성화하고 아니면 숨김
+  dispatch(setShowMap(isLocationQuery));
+
+  try {
+    const response = await fetch("http://localhost:8000/api/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({messages: userQuery})
+    });
+    if (!response.ok)
+      throw new Error("서버 에러가 발생했습니다.");
+
+    const data = await response.json();
+    // 백엔드에서 받은 답변을 Redux 상태에 추가
+    dispatch(addMessage({
+      id: uniqueId,
+      text: data.reply,
+      sender: "ai"
+    }));
+  } catch (err) {
+    console.error("통신에러: ", err);
+    dispatch(addMessage({
+      id: uniqueId,
+      text: "백엔드 서버와 연결할 수 없습니다.",
+      sender: "ai"
+    }));
+  } finally {
+    dispatch(setIsLoading(false));
+  };
+}, [inputText, dispatch]);
+
+/*
+  [useCallback 훅 적용]
+  키보드 엔터키 입력 시 handleSend를 호출하도록 최적화된 콜백함수
+*/
+const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === "Enter" && !isLoading)
+    handleSend();
+}, [handleSend, isLoading]);
+
+  return (
+    <div className="flex justify-center items-center min-h-screen
+    bg-slate-100 p-0 sm:p-4">
+      {/*
+        showMap이 true일 때는 너비를 넓혀서(max-w-[1200px]) 지도와 채팅이 나란히 들어가게 하고
+        false(일반 채팅)일 때는 컴팩트하게(max-w-[800px]) 유지합니다.
+      */}
+      <div className={`w-full h-screen sm:h-[88vh] bg-white shadow-2xl
+      rounded-none sm:rounded-2xl flex flex-col overflow-hidden
+      border border-slate-200 transition-all duration-300
+      ${showMap ? "max-w-[1200px]" : "max-w-[800px]"}`}>
+        {/* 상단 영역 */}
+        <header className="flex justify-between items-center px-6 py-4
+        bg-indigo-600 text-white shadow-md shrink-0">
+          <div className="flex items-center space-x-3">
+            <span className="text-2xl">🤖</span>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">
+              노원구 맛집 & 학원 and so on
+            </h1>
+            {/* 현재 상태를 알려주는 상단 상태 배지 */}
+            <div className="text-xs bg-indigo-700 px-3 py-1.5
+            rounded-full font-medium shadow-inner">
+              {showMap ? "🗺️ 지도 모드 활성화됨" : "💬 일반 채팅 모드"}
+            </div>
           </div>
-          <MDBIcon fas icon="utensils" size="lg"/>
-        </MDBCardHeader>
+        </header>
 
-        {/* 채팅 내용 영역 */}
-        <MDBCardBody
-        style={{overflowY:"auto", flex:1, backgroundColor:"#F9FBFD"}}>
-          {messages.map((msg) => (
-            <div key={msg.id} className={`d-flex flex-row
-            justify-content-${msg.sender === "user" ? "end" : "start"}`}>
-              {msg.sender === "ai" && (
-                <div style={{width:"45px",height:"100%"}}
-                className="me-2 text-center">
-                  <MDBIcon fas icon="robot" size="2x" style={{color:"#3F51B5"}}/>
+        {/* 중앙 바디 영역 */}
+        <div className="flex-1 flex flex-col sm:flex-row overflow-hidden
+        bg-slate-50">
+          {/* 1) 채팅 영역 (항상 표시됨) */}
+          <div className={`flex-1 flex flex-col h-full overflow-hidden
+          ${showMap ? "sm:w-1/2 border-r border-slate-200" : "w-full"}`}>
+            {/* 대화 내용 스크롤 박스 */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {messages.map((msg) => (
+                <div
+                key={msg.id}
+                className={`flex items-end space-x-2
+                ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                  {/* AI 프로필 아바타 */}
+                  {msg.sender === "ai" && (
+                    <div className="w-9 h-9 rounded-full bg-indigo-100
+                    flex items-center justify-center shrink-0 shadow-sm">
+                      <span className="text-indigo-600 text-sm font-bold">
+                        AI
+                      </span>
+                    </div>
+                  )}
+                  {/* 메시지 말풍선 (마크다운 렌더링 지원) */}
+                  <div
+                  className={`max-w-[80%] sm:max-w-[75%] px-4 py-3
+                  rounded-2xl text-sm sm:text-base leading-relaxed
+                  shadow-sm ${
+                    msg.sender === "user"
+                    ? "bg-indigo-600 text-white rounded-br-none"
+                    : "bg-white text-slate-800 border border-slate-200 rounded-bl-none"
+                  }`}>
+                    <div className="prose prose-sm max-w-none">
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* AI가 응답을 생성하는 동안 보여주는 로딩 애니메이션 */}
+              {isLoading && (
+                <div className="flex items-end space-x-2 justify-start">
+                  <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 shadow-sm">
+                    <span className="text-indigo-600 text-sm font-bold">AI</span>
+                  </div>
+                  <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center space-x-2">
+                    <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-bounce"></div>
+                    <span className="text-xs text-slate-500 ml-1 font-medium">생각하는 중...</span>
+                  </div>
                 </div>
               )}
-              <div className="p-3" style={{borderRadius:"15px",
-                backgroundColor:msg.sender === "user" ? "#3F51B5" : "#E0E0E0",
-                color:msg.sender === "user" ? "white" : "black",
-                maxWidth:"70%"
-              }}>
-                {/* <p className="small mb-0"
-                style={{lineHeight:"1.5", whiteSpace:"pre-wrap"}}>
-                  {msg.text}
-                </p> */}
-                <div className="small mb-0" style={{ lineHeight: "1.6" }}>
-                  <Markdown>{msg.text}</Markdown>
-                </div>
-              </div>
+              <div ref={messagesEndRef} />
             </div>
-          ))}
 
-          {/* 로딩 상태(isLoading === true) */}
-          {isLoading && (
-            <div className="d-flex flex-row justify-content-start mb-4">
-              <div style={{width:"45px", height:"100%"}}
-              className="me-2 text-center">
-                <MDBIcon fas icon="robot" size="2x"
-                style={{color:"#3F51B5"}}/>
-              </div>
-              <div className="p-3"
-              style={{borderRadius:"15px", backgroundColor:"#E0E0E0"}}>
-                <MDBSpinner size="sm" rol="status" tag="span"/>
-                <span className="ms-2 small">생각하는 중</span>
+            {/* 하단 메시지 입력 폼 */}
+            <div className="p-4 bg-white border-t border-slate-200 flex items-center space-x-3 shrink-0">
+              <input
+                type="text"
+                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                placeholder="예: 노원구 맛집 추천해줘 / 파이썬 학원 알려줘..."
+                value={inputText}
+                onChange={(e) => dispatch(setInputText(e.target.value))}
+                onKeyPress={handleKeyPress}
+              />
+              <button
+                onClick={handleSend}
+                disabled={isLoading}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-5 py-3 rounded-xl text-sm font-semibold transition shadow-sm shrink-0 cursor-pointer"
+              >
+                전송
+              </button>
+            </div>
+          </div>
+
+          {/* 2) 다음맵(카카오맵) 연동 영역 (맛집/학원 등 장소 검색 질문일 때만 화면에 나타남) */}
+          {showMap && (
+            <div className="w-full sm:w-1/2 h-64 sm:h-full bg-slate-200 relative flex flex-col items-center justify-center p-6 text-center border-t sm:border-t-0 sm:border-l border-slate-200 animate-fadeIn">
+              <div className="absolute inset-0 bg-slate-100 flex flex-col items-center justify-center p-6">
+                <div className="text-5xl mb-3">📍</div>
+                <h3 className="text-lg font-bold text-slate-700">다음맵(카카오맵) 연동 구역</h3>
+                <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                  맛집이나 학원 검색 결과에 맞춰 등록된 업체(기본 핀)와 미등록 업체(커스텀 아이콘)가 지도상에 마커로 표시됩니다.
+                </p>
+                
+                {/* 지도를 강제로 닫고 일반 채팅 화면으로 돌아가기 버튼 */}
+                <button
+                onClick={() => dispatch(setShowMap(false))}
+                className="mt-5 bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-medium transition shadow cursor-pointer"
+                >
+                  지도 닫기 (채팅만 보기)
+                </button>
               </div>
             </div>
           )}
 
-          {/* 사용자가 새 메시지를 쓸 때마다 화면을 이 위치로 끌어내리는 기준점 */}
-          <div ref={messagesEndRef}/>
-        </MDBCardBody>
-
-        {/* 입력 영역 */}
-        <MDBCardFooter
-        className="text-muted d-flex justify-content-start align-items-center p-3">
-          <input
-          type="text"
-          className="form-control form-control-lg"
-          placeholder="메시지를 입력하세요..."
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyPress={handleKeyPress}
-          style={{borderRadius:"10px"}}/>
-          <MDBBtn
-          color="primary"
-          className="ms-3"
-          style={{borderRadius:"10px", minWidth:"100px"}}
-          onClick={handleSend}
-          disabled={isLoading}>
-            <MDBIcon fas icon="paper-plane" className="me-2"/>전송
-          </MDBBtn>
-        </MDBCardFooter>
-      </MDBCard>
-    </MDBContainer>
+        </div>
+      </div>
+    </div>
   );
 };

@@ -1,7 +1,8 @@
+import "./globals.css";
 import type { Metadata } from "next";
 // import { Geist, Geist_Mono } from "next/font/google";
 import { Inter } from "next/font/google";
-// import "./globals.css";
+import Providers from "./providers";
 import "bootstrap/dist/css/bootstrap.min.css"
 
 // add
@@ -18,27 +19,25 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" className="h-full">
       <head>
         {/* 1.폰트어썸 (아이콘) CDN */}
         <link
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
-          rel="stylesheet"
-        />
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+        rel="stylesheet"/>
         {/* 2.구글 Roboto 폰트 (머티리얼 디자인 최적화) CDN */}
         <link
-          href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap"
-          rel="stylesheet"
-        />
+        href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap"
+        rel="stylesheet"/>
         {/* 3.MDBootstrap CSS CDN */}
         <link
-          href="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/7.1.0/mdb.min.css"
-          rel="stylesheet"
-        />
+        href="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/7.1.0/mdb.min.css"
+        rel="stylesheet"/>
       </head>
-      <body className={inter.className}
-      style={{backgroundColor:"#F4F6F9"}}>
-        {children}
+      <body className="h-full m-0 bg-gray-50 text-gray-900 antialiased">
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
