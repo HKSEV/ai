@@ -4,8 +4,14 @@ uvicorn : 서버를 실행 시켜주는도구
 pydantic : 프론트엔드에서 넘어온 메세지 형식이 맞는지 검사
 '''
 import os
-
+# AI가 보내준 JSON 문자열 데이터를 파이썬 딕셔너리로 변환하기 위해
+import json
+from pathlib import Path
+# 리스트나 선택적 값 같은 데이터 타입을 명확히 지정하기 위해
+from typing import List, Optional
 from dotenv import load_dotenv
+
+# from app import ai_reply
 
 '''
 FastAPI 라이브러리에서 FastAPI 클래스를 가져오고
@@ -28,7 +34,7 @@ Pydantic 라이브러리에서 BaseModel 클래스를 가져옵니다
 '''
 
 from pydantic import BaseModel
-from groq import Groq
+# from groq import Groq
 from google import genai
 from google.genai import types
 load_dotenv()
@@ -75,8 +81,20 @@ class ChatRequest(BaseModel):
     message: str
     #사용자가 입력한 채팅 메세지를 받는 필드 str은 문자열 텍스트 타입
 
+class PlaceInfo(BaseModel):
+    name: str
+    category: str
+    address: str
+    lat: float
+    lng: float
+    is_registered: bool
+    description: str
+
 class ChatResponse(BaseModel):
     reply: str
+    # 프론트엔드가 지도를 화면에 띄울지 말지 결정하는 상태값
+    show_map: bool = False
+    places: List[PlaceInfo] = []
 
 '''
 /api/chat 경로로 POST요청이 들어왓을때 실행될 함수를 등록
@@ -95,8 +113,29 @@ async def chat_endpoint(request: ChatRequest):
         "맛집을 잘 아는 친절한 맛집 추천 AI 에이전트입니다. "
         "사용자가 질문을 하면 노원구 내의 실제 유명한 식당 이름, 위치, 대표 메뉴, "
         "분위기나 특징을 포함해 친근하고 보기 쉽게 답변해 주세요. "
-        "반드시 완벽하고 자연스러운 한국어로만 답변하세요."
+        "반드시 완벽하고 자연스러운 한국어로만 답변하세요.\n\n"
+        "응답은 반드시 아래의 JSON 형식으로만 작성해야 합니다.:\n"
+        "{\n"
+        '  "reply": "사용자에게 보여줄 친절한 답변 (마크다운 문법 사용 가능)",\n'
+        '  "show_map": true 또는 false (맛집, 학원, 카페, 식당, 장소 추천 등 지도가 필요한 질문이면 true, 일반 대화면 false),\n'
+        '  "places": [\n'
+        "    {\n"
+        '      "name": "업체명",\n'
+        '      "category": "맛집 또는 학원 등 카테고리",\n'
+        '      "address": "서울 노원구 상세 주소",\n'
+        '      "lat": 37.6551 (실제 노원구 해당 지역의 대략적인 위도 숫자),\n'
+        '      "lng": 127.0614 (실제 노원구 해당 지역의 대략적인 경도 숫자),\n'
+        '      "is_registered": true 또는 false (유명 프랜차이즈나 다음맵에 등록된 유명 업체면 true, 숨은 골목식당이나 가상의 추천/미등록 업체면 false),\n'
+        '      "description": "대표 메뉴나 학원 특징 요약"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "주의: 일반 대화(show_map=false)인 경우 places는 빈 배열 []로 보내세요."
     )
+
+    # 에러가 발생했을 때를 대비해 기본 반환값 변수를 미리 초기화
+    show_map_flag = False
+    places_list = []
 
     try:
         print(f"사용자 질문 수신: {user_message} -> Gemini 응답 요청 중…")
@@ -114,22 +153,32 @@ async def chat_endpoint(request: ChatRequest):
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0.6,
+                # 다른 사족 없이 JSON 형태로만
+                response_format = {"type": "json_object"},
             ),
         )
 
         # AI가 생성한 답변
-        ai_reply = response.text
-        if not ai_reply:
-            ai_reply = "죄송합니다. 응답을 생성하지 못했습니다."
+        raw_content = response.choices[0].message.content
         print("Gemini 응답 완료")
+        parsed_data = json.loads(raw_content)
+        ai_reply = parsed_data.get("reply", "답변을 생성하지 못했습니다.")
+        show_map_flag = parsed_data.get("show_map", False)
+        places_list = parsed_data.get("places", [])
     except Exception as e:
         print(f"Gemini AI 호출 중 에러 발생: {e}")
         ai_reply = (
             "죄송합니다. 현재 AI 응답을 가져오는 중 문제가 발생했습니다. "
             "GEMINI_API_KEY 설정과 서버 콘솔을 확인해 주세요."
         )
+        show_map_flag = False
+        places_list = []
 
-    return ChatResponse(reply=ai_reply)
+    return ChatResponse(
+        reply=ai_reply,
+        show_map=show_map_flag,
+        places=places_list,
+    )
 
 #구동 명령어
 # source .venv/bin/activate

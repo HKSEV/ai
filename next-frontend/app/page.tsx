@@ -5,11 +5,11 @@ import { useSelector, useDispatch } from "react-redux";
 import ReactMarkdown from "react-markdown";
 import { Temporal } from "@js-temporal/polyfill";
 import { RootState, AppDispatch } from "@/store/store";
-import { setInputText, setIsLoading, setShowMap, addMessage } from "@/store/chatSlice";
+import { setInputText, setIsLoading, setShowMap, addMessage, setPlaces } from "@/store/chatSlice";
 
 export default function Chat() {
   const dispatch = useDispatch<AppDispatch>();
-  const {messages, inputText, isLoading, showMap} = useSelector(
+  const {messages, inputText, isLoading, showMap, places} = useSelector(
     (state: RootState) => state.chat
   );
 
@@ -34,9 +34,9 @@ const handleSend = useCallback(async () => {
 
   // 1. 사용자가 입력한 쿼리 저장 및 메세지 객체 생성
   const userQuery = inputText;
-  const uniqueId = Temporal.Now.instant().epochMilliseconds;
+  const userMsgId = Temporal.Now.instant().epochMilliseconds;
   const newUserMessage = {
-    id: uniqueId,
+    id: userMsgId,
     text: userQuery,
     sender: "user" as const,
   };
@@ -59,12 +59,15 @@ const handleSend = useCallback(async () => {
 
   // 장소 관련 질문이면 지도 창을 활성화하고 아니면 숨김
   dispatch(setShowMap(isLocationQuery));
+  // AI 응답 시점의 새로운 Temporal 타임스탬프를 생성
+  //
+  const aiMsgId = userMsgId + 1;
 
   try {
     const response = await fetch("http://localhost:8000/api/chat", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({messages: userQuery})
+      body: JSON.stringify({message: userQuery})
     });
     if (!response.ok)
       throw new Error("서버 에러가 발생했습니다.");
@@ -72,14 +75,22 @@ const handleSend = useCallback(async () => {
     const data = await response.json();
     // 백엔드에서 받은 답변을 Redux 상태에 추가
     dispatch(addMessage({
-      id: uniqueId,
+      id: aiMsgId,
       text: data.reply,
       sender: "ai"
     }));
+
+    // 지도표시여부와 장소목록을 Redux에 반영
+    if (typeof data.show_map === "boolean")
+      dispatch(setShowMap(data.show_map || isLocationQuery));
+
+    // 정적 메소드에 전달되 Array 판별
+    if (Array.isArray(data.places))
+      dispatch(setPlaces(data.places));
   } catch (err) {
     console.error("통신에러: ", err);
     dispatch(addMessage({
-      id: uniqueId,
+      id: aiMsgId,
       text: "백엔드 서버와 연결할 수 없습니다.",
       sender: "ai"
     }));
@@ -180,20 +191,25 @@ const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) =>
             </div>
 
             {/* 하단 메시지 입력 폼 */}
-            <div className="p-4 bg-white border-t border-slate-200 flex items-center space-x-3 shrink-0">
+            <div className="p-4 bg-white border-t border-slate-200 flex
+            items-center space-x-3 shrink-0">
               <input
-                type="text"
-                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
-                placeholder="예: 노원구 맛집 추천해줘 / 파이썬 학원 알려줘..."
-                value={inputText}
-                onChange={(e) => dispatch(setInputText(e.target.value))}
-                onKeyPress={handleKeyPress}
-              />
+              type="text"
+              className="flex-1 bg-slate-100 border border-slate-200
+              rounded-xl px-4 py-3 text-sm focus:outline-none
+              focus:ring-2 focus:ring-indigo-500 focus:bg-white
+              transition"
+              placeholder="예: 노원구 맛집 추천해줘 / 파이썬 학원 알려줘..."
+              value={inputText}
+              onChange={(e) => dispatch(setInputText(e.target.value))}
+              onKeyPress={handleKeyPress}/>
               <button
-                onClick={handleSend}
-                disabled={isLoading}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-5 py-3 rounded-xl text-sm font-semibold transition shadow-sm shrink-0 cursor-pointer"
-              >
+              onClick={handleSend}
+              disabled={isLoading}
+              className="bg-indigo-600 hover:bg-indigo-700
+              disabled:bg-slate-300 text-white px-5 py-3 rounded-xl
+              text-sm font-semibold transition shadow-sm shrink-0
+              cursor-pointer">
                 전송
               </button>
             </div>
@@ -201,10 +217,16 @@ const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) =>
 
           {/* 2) 다음맵(카카오맵) 연동 영역 (맛집/학원 등 장소 검색 질문일 때만 화면에 나타남) */}
           {showMap && (
-            <div className="w-full sm:w-1/2 h-64 sm:h-full bg-slate-200 relative flex flex-col items-center justify-center p-6 text-center border-t sm:border-t-0 sm:border-l border-slate-200 animate-fadeIn">
-              <div className="absolute inset-0 bg-slate-100 flex flex-col items-center justify-center p-6">
-                <div className="text-5xl mb-3">📍</div>
-                <h3 className="text-lg font-bold text-slate-700">다음맵(카카오맵) 연동 구역</h3>
+            <div className="w-full sm:w-1/2 h-64 sm:h-full bg-slate-200
+            relative flex flex-col items-center justify-center p-6
+            text-center border-t sm:border-t-0 sm:border-l
+            border-slate-200 animate-fadeIn">
+              <div className="absolute inset-0 bg-slate-100 flex flex-col
+              items-center justify-center p-6">
+                <div className="text-2xl">📍</div>
+                <h3 className="text-lg font-bold text-slate-700">
+                  다음맵(카카오맵) 연동 구역
+                </h3>
                 <p className="text-sm text-slate-500 mt-1 max-w-sm">
                   맛집이나 학원 검색 결과에 맞춰 등록된 업체(기본 핀)와 미등록 업체(커스텀 아이콘)가 지도상에 마커로 표시됩니다.
                 </p>
@@ -212,14 +234,81 @@ const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) =>
                 {/* 지도를 강제로 닫고 일반 채팅 화면으로 돌아가기 버튼 */}
                 <button
                 onClick={() => dispatch(setShowMap(false))}
-                className="mt-5 bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-medium transition shadow cursor-pointer"
-                >
+                className="mt-5 bg-slate-700 hover:bg-slate-800 text-white
+                px-4 py-2 rounded-xl text-xs font-medium transition shadow
+                cursor-pointer">
                   지도 닫기 (채팅만 보기)
                 </button>
               </div>
+
+              {/* 마커 범례 안내 (다음맵 등록 vs 미등록 아이콘 구분) */}
+              <div className="flex space-x-4 mb-4 p-3 bg-white rounded-xl
+              border border-slate-200 text-xs text-slate-600 shadow-sm">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-base">🔵</span>
+                  <span className="font-semibold text-blue-700">
+                    다음맵 등록 업체 (공식 핀)
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-base">🟠</span>
+                  <span className="font-semibold text-orange-600">
+                    미등록/AI 추천 업체 (커스텀 아이콘)
+                  </span>
+                </div>
+              </div>
+
+              {/* 백엔드에서 받아온 places 배열 데이터 기반으로 등록 */}
+              <div className="flex-1 space-y-3">
+                {places.length > 0 ? (
+                  places.map((place, idx) => (
+                    <div
+                    key={idx}
+                    className="p-4 bg-white rounded-xl border border-slate-200
+                    shadow-sm hover:shadow-md transition flex items-start
+                    space-x-3 text-left">
+                      <div className={`w-10 h-10 rounded-full flex
+                      items-center justify-center shrink-0 text-lg
+                      shadow-sm ${place.is_registered
+                        ? "bg-blue-100 text-blue-600 border border-blue-300"
+                        : "bg-orange-100 text-orange-600 border border-orange-300"}`}>
+                        {place.is_registered ? "🔵" : "🟠"}
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-bold text-slate-800 text-sm">
+                            {place.name}
+                          </h4>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full
+                          font-semibold ${place.is_registered
+                            ? "bg-blue-50 text-blue-600"
+                            : "bg-orange-50 text-orange-600"}`}>
+                            {place.is_registered ? "다음맵 공식등록" : "미등록 커스텀"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          📍{place.address} ({place.category})
+                        </p>
+                        <p className="text-xs text-slate-700 mt-1.5
+                        bg-slate-50 p-2 rounded-lg">
+                          {place.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="h-full flex flex-col items-center
+                  justify-center text-center text-slate-400 py-10">
+                    <div className="text-4xl mb-2">📍</div>
+                    <p className="text-sm">
+                      AI가 장소 좌표를 분석 중이거나 표시할 장소가 없습니다.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-
         </div>
       </div>
     </div>
