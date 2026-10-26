@@ -50,7 +50,7 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 # 사용할 Gemini 모델
-MODEL_NAME = os.getenv("GEMINI_LIVE_MODEL")
+MODEL_NAME = os.getenv("GEMINI_MODEL")
 
 app = FastAPI()
 
@@ -63,7 +63,7 @@ FastAPI 앱(서버) 인스턴스를 생성
 app.add_middleware(
     CORSMiddleware, #사용할 미들웨어 종류를 지정
     #요청을 허용할 프론트엔드 주소 목록
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3001"],
     # 쿠키나 인증 정보(credentials )를 요청에 포함하는 것을 허용
     allow_credentials=True,
     # 허용할 http메서드를 지정
@@ -106,7 +106,7 @@ response_model=ChatResponse는
 # 실제로 요청을 처리하는 비동기 함수 여러 요청을 동시에 효율적으로 처리
 async def chat_endpoint(request: ChatRequest):
     #request객체에서 사용자가 보낸 메세지 텍스트만 꺼내 변수에 저장
-    user_message = request.message
+    user_message = request.message.strip()
 
     system_prompt = (
         "당신은 서울 노원구(노원역 문화의거리, 공릉동 경춘선숲길, 석계역, 수락산, 마들역, 중계역 등)의 "
@@ -133,10 +133,6 @@ async def chat_endpoint(request: ChatRequest):
         "주의: 일반 대화(show_map=false)인 경우 places는 빈 배열 []로 보내세요."
     )
 
-    # 에러가 발생했을 때를 대비해 기본 반환값 변수를 미리 초기화
-    show_map_flag = False
-    places_list = []
-
     try:
         print(f"사용자 질문 수신: {user_message} -> Gemini 응답 요청 중…")
         # chat_completion = client.chat.completions.create(
@@ -154,31 +150,30 @@ async def chat_endpoint(request: ChatRequest):
                 system_instruction=system_prompt,
                 temperature=0.6,
                 # 다른 사족 없이 JSON 형태로만
-                response_format = {"type": "json_object"},
+                response_mime_type="application/json",
+                response_schema=ChatResponse,
             ),
         )
 
         # AI가 생성한 답변
-        raw_content = response.choices[0].message.content
+        raw_content = response.text
         print("Gemini 응답 완료")
-        parsed_data = json.loads(raw_content)
-        ai_reply = parsed_data.get("reply", "답변을 생성하지 못했습니다.")
-        show_map_flag = parsed_data.get("show_map", False)
-        places_list = parsed_data.get("places", [])
+        result = ChatResponse.model_validate_json(raw_content)
+        # 지도가 필요 없는 응답에는 장소 목록을 보내지 않음
+        if not result.show_map:
+            result.places = []
+        return result
     except Exception as e:
         print(f"Gemini AI 호출 중 에러 발생: {e}")
         ai_reply = (
             "죄송합니다. 현재 AI 응답을 가져오는 중 문제가 발생했습니다. "
             "GEMINI_API_KEY 설정과 서버 콘솔을 확인해 주세요."
         )
-        show_map_flag = False
-        places_list = []
-
-    return ChatResponse(
-        reply=ai_reply,
-        show_map=show_map_flag,
-        places=places_list,
-    )
+        return ChatResponse(
+            reply=ai_reply,
+            show_map=False,
+            places=[]
+        )
 
 #구동 명령어
 # source .venv/bin/activate
