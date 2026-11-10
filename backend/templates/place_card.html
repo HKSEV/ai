@@ -1,0 +1,21 @@
+<div class="bs-place-card">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="m-0 fw-bold text-white fs15">
+      {{place.name}}
+    </h5>
+    <span
+    class="badge rounded-pill px-2 py-1 fs10"
+    style="background: {{badge_bg}}; color: {{badge_color}};">
+      {{badge_text}}
+    </span>
+  </div>
+  <div
+  class="text-secondary mb-2 fs12"
+  style="color: #CBD5E1 !important;">
+    <i class="fa-solid fa-location-dot text-danger me-1"></i>
+    {{place.address}} ({{place.category}})
+  </div>
+  <div class="p-2 px-3 rounded-3 fs12 place">
+    {{place.description}}
+  </div>
+</div>

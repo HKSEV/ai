@@ -1,4 +1,38 @@
-# 환경변수 파일 제외
-/.env
-/.env.*
-/!.env.example
+# 환경변수 — 예제 파일은 포함
+.env*
+!.env.example
+
+# Python 가상환경
+.venv/
+venv/
+env/
+
+# Python 캐시 및 바이트코드
+__pycache__/
+*.py[cod]
+
+# 테스트 및 코드 분석 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# 빌드 결과물
+build/
+dist/
+*.egg-info/
+
+# Streamlit 비밀 설정
+.streamlit/secrets.toml
+
+# 로그
+*.log
+
+# IDE 및 운영체제 파일
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

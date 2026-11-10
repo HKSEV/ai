@@ -4,7 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import streamlit as st
-
+from jinja2 import Environment, FileSystemLoader
 
 st.set_page_config(
   page_title="AI",
@@ -12,6 +12,15 @@ st.set_page_config(
   layout="wide",
   initial_sidebar_state="collapsed",
 )
+
+
+# MVC패턴 html분리
+env = Environment(loader=FileSystemLoader("templates"))
+
+
+# 템플릿 파일을 읽고 주입하는 헬퍼 함수
+def render_template(template_name, **context):
+  return env.get_template(template_name).render(context)
 
 
 def render_html(html_text):
@@ -75,23 +84,8 @@ col_logo, col_sel, col_stat = st.columns(
 )
 
 with col_logo:
-  render_html("""
-    <div class="d-flex align-items-center gap-3">
-      <div class="d-flex align-items-center justify-content-center rounded-4 shadow-sm">
-        <i class="fa-solid fa-robot"></i>
-      </div>
-
-      <div class="d-flex flex-column justify-content-center">
-        <div class="d-flex align-items-baseline gap-2 m-0">
-          <span class="text-warning">AI</span>
-          <span class="fw-bold text-white">로컬 어시스턴트</span>
-          <span class="text-secondary">
-            지역 맞춤형 맛집 및 학원 추천 플랫폼
-          </span>
-        </div>
-      </div>
-    </div>
-  """)
+  header_html = render_template("header.html")
+  render_html(header_html)
 
 with col_sel:
   districts = ["노원구", "도봉구", "강북구", "중랑구", "성북구"]
@@ -106,22 +100,11 @@ with col_sel:
   st.session_state.selected_district = selected
 
 with col_stat:
-  if st.session_state.show_map:
-    badge_html = (
-      '<i class="fa-solid fa-map me-2"></i>'
-      '<span>지도 연동 활성화</span>'
-    )
-  else:
-    badge_html = (
-      '<i class="fa-solid fa-comments me-2"></i>'
-      '<span>AI 대화 모드</span>'
-    )
-
-  render_html(f"""
-    <div class="bs-glass-box d-flex align-items-center justify-content-center px-3 fw-bold">
-      {badge_html}
-    </div>
-  """)
+  badge_html = render_template(
+    "status_badge.html",
+    show_map=st.session_state.show_map,
+  )
+  render_html(badge_html)
 
 render_html("<hr class='my-3 border-secondary opacity-25'>")
 
@@ -141,32 +124,12 @@ else:
 with chat_col:
   with st.container(height=480, border=True):
     for message in st.session_state.messages:
-      if message["role"] == "assistant":
-        content = message["content"].replace("\n", "<br>")
-
-        render_html(f"""
-          <div class="d-flex align-items-end gap-2 mb-3 justify-content-start">
-            <div class="d-flex align-items-center justify-content-center rounded-3 shadow-sm">
-              <i class="fa-solid fa-robot fs15"></i>
-            </div>
-            <div class="bs-chat-bubble-ai mw82">
-              {content}
-            </div>
-          </div>
-        """)
-      else:
-        # 사용자 입력에 포함된 HTML은 문자 그대로 표시
-        content = escape(
-          message["content"]
-        ).replace("\n", "<br>")
-
-        render_html(f"""
-          <div class="d-flex align-items-end gap-2 mb-3 justify-content-end">
-            <div class="bs-chat-bubble-user mw82">
-              {content}
-            </div>
-          </div>
-        """)
+      bubble_html = render_template(
+        "chat_bubble.html",
+        role=message["role"],
+        content=message["content"],
+      )
+      render_html(bubble_html)
 
   with st.form(key="chat_form", clear_on_submit=True):
     f_col1, f_col2 = st.columns(
@@ -253,64 +216,31 @@ with chat_col:
 if st.session_state.show_map:
   with map_col:
     with st.container(height=480, border=True):
-      render_html(f"""
-        <div class="d-flex justify-content-between align-items-center p-3 mb-3 rounded-4 mapCard">
-          <div class="d-flex align-items-center gap-2 fw-bold text-white fs13">
-            <span class="text-info fw-semibold">
-              <i class="fa-solid fa-circle me-1 fs8"></i> AI 추천
-            </span>
-            <span>{st.session_state.selected_district} 추천 장소 지도</span>
-          </div>
-        </div>
+      map_header_html = render_template(
+        "map_header.html",
+        district=st.session_state.selected_district,
+      )
+      render_html(map_header_html)
 
-        <div class="d-flex flex-column align-items-center justify-content-center py-3 mb-3 rounded-4 bgRadial">
-          <i class="fa-solid fa-map-location-dot text-primary mb-2 fs28"></i>
-          <div>
-            <span class="font-monospace text-info fs11">
-              [ Kakao Map Interactive Layer Active ]
-            </span>
-          </div>
-        </div>
-      """)
+      if st.session_state.places:
+        for place in st.session_state.places:
+          if place["is_registered"]:
+            badge_bg = "rgba(59, 130, 246, 0.2)"
+            badge_color = "#60a5fa"
+            badge_text = "공식 등록"
+          else:
+            badge_bg = "rgba(253, 224, 71, 0.2)"
+            badge_color = "#fde047"
+            badge_text = "커스텀 추천"
 
-      for place in st.session_state.places:
-        if place["is_registered"]:
-          badge_bg = "rgba(59, 130, 246, 0.2)"
-          badge_color = "#60a5fa"
-          badge_text = "공식 등록"
-        else:
-          badge_bg = "rgba(253, 224, 71, 0.2)"
-          badge_color = "#fde047"
-          badge_text = "커스텀 추천"
-
-        render_html(f"""
-          <div class="bs-place-card">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <h5 class="m-0 fw-bold text-white fs15">
-                {place["name"]}
-              </h5>
-
-              <span
-                class="badge rounded-pill px-2 py-1 fs10"
-                style="background: {badge_bg}; color: {badge_color};"
-              >
-                {badge_text}
-              </span>
-            </div>
-
-            <div
-              class="text-secondary mb-2 fs12"
-              style="color: #cbd5e1 !important;"
-            >
-              <i class="fa-solid fa-location-dot text-danger me-1"></i>
-              {place["address"]} ({place["category"]})
-            </div>
-
-            <div class="p-2 px-3 rounded-3 fs12 place">
-              {place["description"]}
-            </div>
-          </div>
-        """)
+          card_html = render_template(
+            "place_card_html",
+            place=place,
+            badge_bg=badge_bg,
+            badge_color=badge_color,
+            badge_text=badge_text,
+          )
+          render_html(card_html)
 
     render_html("<div class='mt12'></div>")
 
