@@ -1,17 +1,17 @@
-import "./globals.css";
+import "@/assets/css/Global.styles.css";
 import type { Metadata } from "next";
 // import { Geist, Geist_Mono } from "next/font/google";
 import { Inter } from "next/font/google";
-import Providers from "./providers";
-import "bootstrap/dist/css/bootstrap.min.css"
+import ReduxProvider from "@/store/ReduxProvider";
+import "bootstrap/dist/css/bootstrap.min.css";
 
 // add
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "노원구 맛집 AI 에이전트",
-  description: "당신의 완벽한 식사를 위한 AI 비서"
-}
+  description: "당신의 완벽한 식사를 위한 AI 비서",
+};
 
 export default function RootLayout({
   children,
@@ -35,13 +35,11 @@ export default function RootLayout({
         rel="stylesheet"/>
       </head>
       <body className="h-full m-0 bg-gray-50 text-gray-900 antialiased">
-        <Providers>
-          {children}
-        </Providers>
+        <ReduxProvider>{children}</ReduxProvider>
       </body>
     </html>
   );
-}
+};
 /*
 원래 가지고 있던 html 관련 설정
 <html

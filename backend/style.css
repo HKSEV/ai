@@ -192,13 +192,13 @@ div.stButton > button:hover {
   border-color: rgba(253, 224, 71, 0.4);
 }
 
-.aiText{
+.aiText {
   font-size: 24px;
   color: #FDE047;
   letter-spacing: -0.5px;
 }
 
-.localText{
+.localText {
   font-size: 20px;
   letter-spacing: -0.5px;
 }
@@ -227,7 +227,7 @@ div.stButton > button:hover {
   font-size: 28px;
 }
 
-.mw82{
+.mw82 {
   max-width: 82%;
 }
 
@@ -239,27 +239,27 @@ div.stButton > button:hover {
 /* gradient */
 .bgRadial {
   background: radial-gradient(
-          circle,
-          rgba(59, 130, 246, 0.18) 0%,
-          rgba(13, 17, 26, 0.85) 100%
+    circle,
+    rgba(59, 130, 246, 0.18) 0%,
+    rgba(13, 17, 26, 0.85) 100%
   );
   border: 1px dashed rgba(59, 130, 246, 0.35);
 }
 
-.place{
+.place {
   background: #0F172A;
   color: #E2E8F0;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.mt10{
+.mt10 {
   margin-top: -15px !important;
 }
 
-.mt10up{
+.mt10up {
   margin-top: 4px !important;
 }
 
-.mt12{
+.mt12 {
   margin-top: 12px;
 }

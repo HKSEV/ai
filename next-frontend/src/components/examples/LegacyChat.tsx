@@ -3,11 +3,12 @@ Nextjs 13버전 이상에서 이 파일이 클라이언트(브라우저)
 측에서 실행되는 컴포넌트임을 명시
 React의 useState, useEffect 같은 훅을 사용하려면 필요
 */
-"use client"
+"use client";
 
 // 리액트 라이브러리에서 기본 기능과 상태관리(useState), 참조(useRef), 생명주기(useEffect) 훅 가져오기
-import React, { useState, useRef, useEffect } from "react"
-import { // Material 
+import React, { useState, useRef, useEffect } from "react";
+import {
+  // Material
   MDBContainer,
   MDBCard,
   MDBCardHeader,
@@ -19,12 +20,7 @@ import { // Material
 } from "mdb-react-ui-kit";
 import Markdown from "react-markdown";
 
-// 메시지 타입 정의
-interface Message {
-  id: number,
-  text: string,
-  sender: "user" | "ai";
-}
+import type { Message } from "@/app/types/Chat";
 
 export default function Home() {
   // 사용자가 입력창에 적고 있는 글자를 저장하는 상태(State)
@@ -34,11 +30,12 @@ export default function Home() {
   // 채팅 화면에 보여줄 메시지드르이 목록을 배열로 저장하는 상태
   const [messages, setMessages] = useState<Message[]>([
     // 화면이 처음 커졌을 때 보여줄 기본 AI 인사말을 설정
-  {
-    id: 1,
-    text: "안녕하세요! 노원구 맛집 AI 에이전트입니다. 어떤 맛집을 찾고 계신가요?",
-    sender: "ai",
-  }]);
+    {
+      id: 1,
+      text: "안녕하세요! 노원구 맛집 AI 에이전트입니다. 어떤 맛집을 찾고 계신가요?",
+      sender: "ai",
+    },
+  ]);
 
   /*
   채팅이 길어질 때 가장 최신 메시지(맨 아래)로 자동 스크롤하기 위해
@@ -52,7 +49,7 @@ export default function Home() {
   */
   useEffect(() => {
     // messagesEndRef가 가리키는 화면 요소(맨 아래 빈 div)로 부드럽게(smooth) 스크롤
-    messagesEndRef.current?.scrollIntoView({behavior: "smooth"});
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // 사용자가 전송 버튼을 누르거나 엔터키를 쳤을 때 실행되는 비동기 함수
@@ -68,7 +65,7 @@ export default function Home() {
     const newUserMessage: Message = {
       id: Date.now(), // 현재 시간을 밀리초로 가져와 고유한 ID로 사용
       text: inputText, // 사용자가 입력한 텍스트
-      sender: "user" // 보낸 사람은 "사용자"
+      sender: "user", // 보낸 사람은 "사용자"
     };
     // 기존 메시지 배열(prev)의 끝에 방금 만든 사용자 메시지를 추가하여 화면을 업데이트
     setMessages((prev) => [...prev, newUserMessage]);
@@ -81,10 +78,10 @@ export default function Home() {
       const response = await fetch("http://localhost:8000/api/chat", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         // 자바스크립트 객체({ message: ... })를 JSON 문자열로 변환하여 보냄
-        body: JSON.stringify({message: newUserMessage.text}),
+        body: JSON.stringify({ message: newUserMessage.text }),
       });
       // 서버에서 온 응답상태가 정상(200번대)이 아니면 에러를 발생
       if (!response.ok)
@@ -94,31 +91,28 @@ export default function Home() {
       const data = await response.json();
 
       // 백엔드에서 보내준 답변(data.reply)을 이용해 AI메시지 객체를 만들고 화면에 추가
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now(), text: data.reply, sender: "ai" },
-      ]);
+      setMessages((prev) => [...prev, { id: Date.now(), text: data.reply, sender: "ai" }]);
 
       /*
       파이썬 백엔드 서버(FastAPI)로 데이터를 보냄(POST 요청)
       fetch 함수는 네트워크 통신을 담당하며, await를 써서 응답이
       올 때까지 기다림
       */
-    }
-    catch(err) {
+    } catch (err) {
       // 통신 중 에러(서버 꺼짐, 인터넷 끊김 등)가 발생하면 콘솔에 에러를 출력
       console.error("통신에러: ", err);
       // 사용자에게 서버와 연결할 수 없다는 안내 메시지를 AI가 말하는 것처럼 화면에 띄움
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(),
+        {
+          id: Date.now(),
           text: "백엔드 서버와 연결할 수 없음 파이썬 서버(8000)가 켜져있는지 확인 요망",
-          sender: "ai" },
-      ])
-    }
-    finally {
+          sender: "ai",
+        },
+      ]);
+    } finally {
       setIsLoading(false);
-    };
+    }
 
     // // 임시 AI응답(나중에 백엔드 연동 후 삭제)
     // setTimeout(() => {
@@ -138,39 +132,49 @@ export default function Home() {
       handleSend();
   };
 
-  return(
-    <MDBContainer className="py-5" style={{maxWidth:"800px"}}>
-      <MDBCard style={{borderRadius:"15px", height:"80vh",
-      display:"flex", flexDirection:"column"}}>
+  return (
+    <MDBContainer className="py-5" style={{ maxWidth: "800px" }}>
+      <MDBCard
+      style={{
+        borderRadius: "15px",
+        height: "80vh",
+        display: "flex",
+        flexDirection: "column",
+      }}>
         {/* 헤더 영역 */}
         <MDBCardHeader
         className="d-flex justify-content-between align-items-center p-3 text-white"
-        style={{borderTopLeftRadius:"15px", borderTopRightRadius:"15px",
-          backgroundColor:"#3F51B5"
+        style={{
+          borderTopLeftRadius: "15px",
+          borderTopRightRadius: "15px",
+          backgroundColor: "#3F51B5",
         }}>
           <div className="d-flex align-items-center">
-            <MDBIcon fas icon="robot" size="lg" className="me-2"/>
+            <MDBIcon fas icon="robot" size="lg" className="me-2" />
             <h5 className="mb-0 fw-bold text-black">노원구 맛집 AI</h5>
           </div>
-          <MDBIcon fas icon="utensils" size="lg"/>
+          <MDBIcon fas icon="utensils" size="lg" />
         </MDBCardHeader>
 
         {/* 채팅 내용 영역 */}
-        <MDBCardBody
-        style={{overflowY:"auto", flex:1, backgroundColor:"#F9FBFD"}}>
+        <MDBCardBody style={{ overflowY: "auto", flex: 1, backgroundColor: "#F9FBFD" }}>
           {messages.map((msg) => (
-            <div key={msg.id} className={`d-flex flex-row
+            <div
+            key={msg.id}
+            className={`d-flex flex-row
             justify-content-${msg.sender === "user" ? "end" : "start"}`}>
               {msg.sender === "ai" && (
-                <div style={{width:"45px",height:"100%"}}
-                className="me-2 text-center">
-                  <MDBIcon fas icon="robot" size="2x" style={{color:"#3F51B5"}}/>
+                <div style={{ width: "45px", height: "100%" }} className="me-2 text-center">
+                  <MDBIcon fas icon="robot" size="2x" style={{ color: "#3F51B5" }} />
                 </div>
               )}
-              <div className="p-3" style={{borderRadius:"15px",
-                backgroundColor:msg.sender === "user" ? "#3F51B5" : "#E0E0E0",
-                color:msg.sender === "user" ? "white" : "black",
-                maxWidth:"70%"
+              <div
+              className="p-3"
+              style={{
+                borderRadius: "15px",
+                backgroundColor: msg.sender === "user" ? "#3F51B5" : "#E0E0E0",
+                color: msg.sender === "user" ? "white" : "black",
+                maxWidth: "70%",
               }}>
                 {/* <p className="small mb-0"
                 style={{lineHeight:"1.5", whiteSpace:"pre-wrap"}}>
@@ -186,26 +190,22 @@ export default function Home() {
           {/* 로딩 상태(isLoading === true) */}
           {isLoading && (
             <div className="d-flex flex-row justify-content-start mb-4">
-              <div style={{width:"45px", height:"100%"}}
-              className="me-2 text-center">
-                <MDBIcon fas icon="robot" size="2x"
-                style={{color:"#3F51B5"}}/>
+              <div style={{ width: "45px", height: "100%" }} className="me-2 text-center">
+                <MDBIcon fas icon="robot" size="2x" style={{ color: "#3F51B5" }} />
               </div>
-              <div className="p-3"
-              style={{borderRadius:"15px", backgroundColor:"#E0E0E0"}}>
-                <MDBSpinner size="sm" rol="status" tag="span"/>
+              <div className="p-3" style={{ borderRadius: "15px", backgroundColor: "#E0E0E0" }}>
+                <MDBSpinner size="sm" rol="status" tag="span" />
                 <span className="ms-2 small">생각하는 중</span>
               </div>
             </div>
           )}
 
           {/* 사용자가 새 메시지를 쓸 때마다 화면을 이 위치로 끌어내리는 기준점 */}
-          <div ref={messagesEndRef}/>
+          <div ref={messagesEndRef} />
         </MDBCardBody>
 
         {/* 입력 영역 */}
-        <MDBCardFooter
-        className="text-muted d-flex justify-content-start align-items-center p-3">
+        <MDBCardFooter className="text-muted d-flex justify-content-start align-items-center p-3">
           <input
           type="text"
           className="form-control form-control-lg"
@@ -213,14 +213,15 @@ export default function Home() {
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyPress={handleKeyPress}
-          style={{borderRadius:"10px"}}/>
+          style={{ borderRadius: "10px" }}/>
           <MDBBtn
           color="primary"
           className="ms-3"
-          style={{borderRadius:"10px", minWidth:"100px"}}
+          style={{ borderRadius: "10px", minWidth: "100px" }}
           onClick={handleSend}
           disabled={isLoading}>
-            <MDBIcon fas icon="paper-plane" className="me-2"/>전송
+            <MDBIcon fas icon="paper-plane" className="me-2" />
+            전송
           </MDBBtn>
         </MDBCardFooter>
       </MDBCard>
