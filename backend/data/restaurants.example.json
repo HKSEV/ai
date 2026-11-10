@@ -1,0 +1,78 @@
+[
+  {
+    "external_id": "demo:gongneung-warm-table",
+    "name": "[개발 예시] 공릉 온기식탁",
+    "address": "서울 노원구 공릉동 (개발용 가상 음식점)",
+    "area": "공릉동 공릉역",
+    "category": "한식 찌개",
+    "tags": [
+      "조용한",
+      "혼밥",
+      "데이트"
+    ],
+    "source": "개발 예시 · 실제 음식점 아님",
+    "checked_at": "2026-11-10T00:00:00+00:00",
+    "hours_source": "개발용 가상 영업시간",
+    "hours_checked_at": "2026-11-10T00:00:00+00:00",
+    "hours": {
+      "mon": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "tue": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "wed": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "thu": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "fri": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "sat": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      },
+      "sun": {
+        "open": "11:00",
+        "close": "21:00",
+        "break_start": "15:00",
+        "break_end": "17:00"
+      }
+    },
+    "menus": [
+      {
+        "name": "가상 찌개 정식",
+        "price": 14000,
+        "servings": 1,
+        "source": "개발용 가상 메뉴",
+        "checked_at": "2026-11-10T00:00:00+00:00"
+      },
+      {
+        "name": "가상 4인 식사 세트",
+        "price": 52000,
+        "servings": 4,
+        "source": "개발용 가상 메뉴",
+        "checked_at": "2026-11-10T00:00:00+00:00"
+      }
+    ]
+  }
+]

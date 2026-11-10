@@ -51,6 +51,11 @@ def opening_status(restaurant, visit_at=None):
         return {"label": "영업시간 내", "basis": "등록된 일반 영업시간 기준 · 방문 전 확인 권장", "is_realtime": False}
   except (KeyError, ValueError, TypeError):
     return {"label": "확인 필요", "basis": "영업시간 형식 확인이 필요합니다.", "is_realtime": False}
+  today = restaurant.hours.get(DAYS[moment.weekday()])
+  if today is None:
+    return {"label": "확인 필요", "basis": "해당 요일의 영업시간 정보가 없습니다.", "is_realtime": False}
+  if today.get("closed"):
+    return {"label": "휴무일", "basis": "등록된 일반 영업시간 기준 · 실시간 정보 아님", "is_realtime": False}
   return {"label": "영업시간 외", "basis": "등록된 일반 영업시간 기준 · 실시간 정보 아님", "is_realtime": False}
 
 
@@ -126,6 +131,7 @@ def query_kakao(query, latitude=None, longitude=None):
 
 
 def sync_kakao(db, query, latitude, longitude):
+  synced = []
   for data in query_kakao(query, latitude, longitude):
     address = data.get("road_address_name") or data.get("address_name") or ""
     if "노원구" not in address or data.get("category_group_code") not in {"FD6", "CE7"}:
@@ -152,15 +158,18 @@ def sync_kakao(db, query, latitude, longitude):
     item.checked_at = utcnow()
     # This API provides no opening hours or menu prices. Preserve their independent provenance.
     item.is_demo = False
+    synced.append(item)
   db.flush()
+  return {item.id for item in synced}
 
 
 def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   notices = []
+  matched_ids = set()
   area = conditions.get("area") or origin_text or "노원구"
   if settings.kakao_local_key and settings.kakao_storage_allowed:
     try:
-      sync_kakao(db, "노원구 " + area + " " + (conditions.get("cuisine") or "음식점"), latitude, longitude)
+      matched_ids = sync_kakao(db, "노원구 " + area + " " + (conditions.get("cuisine") or "음식점"), latitude, longitude)
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
       notices.append("외부 음식점 조회가 지연되어 저장된 데이터로 탐색했습니다.")
   else:
@@ -172,7 +181,7 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   result = []
   for row in rows:
     haystack = row.name + " " + row.address + " " + row.area + " " + row.category + " " + " ".join(row.tags or [])
-    if conditions.get("area") and conditions["area"] not in {"노원", "노원구", "서울 노원구"} and conditions["area"] not in haystack:
+    if conditions.get("area") and conditions["area"] not in {"노원", "노원구", "서울 노원구"} and conditions["area"] not in haystack and row.id not in matched_ids:
       continue
     candidate = serialize_restaurant(db, row, conditions, latitude, longitude)
     menu_text = " ".join(menu["name"] for menu in candidate["menus"])

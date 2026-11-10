@@ -54,6 +54,8 @@ def save_post(db, user, data, identity=None):
   for key, value in data.model_dump().items():
     setattr(item, key, value)
   item.updated_at = utcnow()
+  if identity is None:
+    item.created_at = item.updated_at
   db.add(item)
   db.commit()
   delete_unlinked_uploads(db, set(previous_photos) - set(item.photo_ids), user.id)

@@ -1,15 +1,11 @@
-"use client";
-
-// 스토어 생성해서 앱 전체에 상태 공급
-
 import { configureStore } from "@reduxjs/toolkit";
-import chatReducer from "./chatSlice";
+import auth from "./authSlice";
+import chat from "./chatSlice";
 
-export const store = configureStore({
-  reducer: {
-    chat: chatReducer,
-  },
-});
+export function makeStore() {
+  return configureStore({ reducer: { auth, chat } });
+}
 
-export type RootState = ReturnType<typeof store.getState>;
-export type AppDispatch = typeof store.dispatch;
+export type AppStore = ReturnType<typeof makeStore>;
+export type RootState = ReturnType<AppStore["getState"]>;
+export type AppDispatch = AppStore["dispatch"];

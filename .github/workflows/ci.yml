@@ -1,0 +1,68 @@
+name: Service checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-mysql:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: nowon_test_food_test
+          MYSQL_USER: nowon_test
+          MYSQL_PASSWORD: ci-app-test-only
+          MYSQL_ROOT_PASSWORD: ci-root-test-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -pci-root-test-only --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      APP_ENV: test
+      TEST_DATABASE_URL: mysql+pymysql://nowon_test:ci-app-test-only@127.0.0.1:3306/nowon_test_food_test?charset=utf8mb4
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        run: |
+          python3 -m venv /tmp/nowon-ci-tools
+          /tmp/nowon-ci-tools/bin/pip install uv
+      - name: Install locked dependencies
+        run: /tmp/nowon-ci-tools/bin/uv sync --frozen --python python3
+      - name: Test real MySQL storage and API
+        run: .venv/bin/python -m unittest discover -s tests -v
+      - name: Verify integrated MySQL journeys
+        run: .venv/bin/python scripts/verify_mysql.py --reset
+      - name: Compile Python
+        run: .venv/bin/python -m compileall -q main.py config controller dto entity service scripts tests
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: next-frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: next-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build
