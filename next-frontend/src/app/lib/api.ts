@@ -1,15 +1,41 @@
-import type { ChatResponse } from "@/app/types/Chat";
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
-// 기존 백엔드 주소와 요청 형식을 공통으로 관리합니다.
-export async function requestChat(message: string): Promise<ChatResponse> {
-  const response = await fetch("http://localhost:8000/api/chat", {
-    method: "POST",
-    headers: { "Content-type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  headers.set("X-Requested-With", "nowon-walk");
+  if (options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  let response: Response;
+  try {
+    response = await fetch(path, { ...options, headers, credentials: "include", cache: "no-store" });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw new ApiError("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.", 0);
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const message = typeof body?.detail === "string" ? body.detail
+      : Array.isArray(body?.detail) ? body.detail.map((item: { msg: string }) => item.msg).join(" · ")
+      : "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("auth:expired"));
+    }
+    throw new ApiError(message, response.status);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
 
-  if (!response.ok)
-    throw new Error("서버 에러가 발생했습니다");
+export function json(method: string, body: unknown): RequestInit {
+  return { method, body: JSON.stringify(body) };
+}
 
-  return response.json();
-};
+export function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
+}

@@ -1,23 +1,40 @@
-from typing import List
+from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import Field, model_validator
+
+from dto.account import InputModel
 
 
-class ChatRequest(BaseModel):
-  message: str
-  # 사용자가 입력한 채팅 메세지를 받는 필드 str은 문자열 텍스트 타입
+class ChatRequest(InputModel):
+  message: str = Field(min_length=1, max_length=2000)
+  conversation_id: int | None = Field(default=None, gt=0)
+  origin_text: str | None = Field(default=None, max_length=300)
+  latitude: float | None = Field(default=None, ge=33, le=39)
+  longitude: float | None = Field(default=None, ge=124, le=132)
 
-class PlaceInfo(BaseModel):
-  name: str
-  category: str
-  address: str
-  lat: float
-  lng: float
-  is_registered: bool
-  description: str
+  @model_validator(mode="after")
+  def validate_coordinates(self):
+    if (self.latitude is None) != (self.longitude is None):
+      raise ValueError("위도와 경도를 함께 입력해 주세요.")
+    return self
 
-class ChatResponse(BaseModel):
-  reply: str
-  # 프론트엔드가 지도를 화면에 띄울지 말지 결정하는 상태값
-  show_map: bool = False
-  places: List[PlaceInfo] = []
+
+class SearchConditions(InputModel):
+  area: str | None = Field(default=None, max_length=100)
+  cuisine: str | None = Field(default=None, max_length=80)
+  budget_total: int | None = Field(default=None, ge=1000, le=20000000)
+  party_size: int | None = Field(default=None, ge=1, le=30)
+  visit_at: datetime | None = None
+  atmosphere: str | None = Field(default=None, max_length=100)
+  purpose: str | None = Field(default=None, max_length=100)
+  clarification: str | None = Field(default=None, max_length=200)
+
+
+class RankedRestaurant(InputModel):
+  restaurant_id: int
+  evidence_keys: list[Literal["area", "category", "menu_budget", "community_reviews", "preferences", "distance"]] = Field(default_factory=list, max_length=6)
+
+
+class RecommendationResult(InputModel):
+  items: list[RankedRestaurant] = Field(max_length=5)

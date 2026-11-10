@@ -25,9 +25,6 @@ build/
 dist/
 *.egg-info/
 
-# Streamlit 비밀 설정
-.streamlit/secrets.toml
-
 # 로그
 *.log
 
@@ -36,3 +33,5 @@ dist/
 .DS_Store
 Thumbs.db
 Desktop.ini
+/uploads/
+*.sqlite

@@ -1,0 +1,36 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { api, errorMessage, json } from "@/app/lib/api";
+import { today } from "@/app/lib/format";
+import type { UploadedFile, Visit } from "@/app/types/Service";
+import RestaurantSelect from "@/components/ui/RestaurantSelect";
+
+export default function VisitForm({ initial, onSaved }: { initial?: Visit; onSaved: () => void }) {
+  const [restaurant, setRestaurant] = useState(initial?.restaurant_id.toString() || "");
+  const [date, setDate] = useState(initial?.visited_on || today());
+  const [note, setNote] = useState(initial?.note || "");
+  const [receipt, setReceipt] = useState<string | null>(initial?.receipt_id || null);
+  const [pending, setPending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setUploading(true); setError("");
+    try {
+      const body = new FormData(); body.append("file", file);
+      const response = await api<UploadedFile>("/api/uploads?kind=receipt", { method: "POST", body });
+      setReceipt(response.id);
+    } catch (error) { setError(errorMessage(error)); }
+    finally { setUploading(false); }
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setPending(true); setError("");
+    try {
+      await api(initial ? "/api/me/visits/" + initial.id : "/api/me/visits", json(initial ? "PUT" : "POST", { restaurant_id: Number(restaurant), visited_on: date, note, receipt_id: receipt }));
+      onSaved();
+    } catch (error) { setError(errorMessage(error)); }
+    finally { setPending(false); }
+  };
+  return <form className="form-stack" onSubmit={submit}><RestaurantSelect value={restaurant} currentName={initial?.restaurant_name} onChange={setRestaurant} /><label>방문일<input type="date" required value={date} max={today()} onChange={(event) => setDate(event.target.value)} /></label><label>나만의 메모<textarea rows={3} value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="먹었던 메뉴나 기억하고 싶은 점" /></label><label>영수증 첨부 (선택 · 비공개)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = ""; }} /></label>{receipt && <div className="attached-files"><a href={"/api/uploads/" + receipt} target="_blank" rel="noreferrer">첨부된 영수증 보기</a><button type="button" onClick={() => setReceipt(null)}>제거</button></div>}<p className="helper">실제 방문한 경우에만 기록해 주세요. 영수증 첨부만으로 방문 인증이 완료되지는 않습니다. 현재 인증 제공처는 미연동 상태예요.</p>{error && <p className="inline-error" role="alert">{error}</p>}<button className="button primary" type="submit" disabled={pending || uploading}>{pending ? "저장 중…" : uploading ? "영수증 업로드 중…" : "방문 기록 저장"}</button></form>;
+}

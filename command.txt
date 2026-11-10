@@ -1,11 +1,17 @@
--- 백엔드
-pip install python-dotenv
-pip install groq
-python -m streamlit run app.py --server.port 8000
+# backend
+cd backend
+uv sync
+uv run python -m scripts.init_db
+uv run uvicorn main:app --reload --port 8000
 
--- 프론트엔드
-npm install react-markdown --legacy-peer-deps
-npm install -D tailwindcss postcss autoprefixer --legacy-peer-deps
-npx tailwindcss init -p
-npm install @reduxjs/toolkit react-redux --legacy-peer-deps
-npm install @js-temporal/polyfill --legacy-peer-deps
+# frontend (새 터미널)
+cd next-frontend
+npm ci
+npm run dev
+
+# Docker Compose (루트, .env 및 backend/.env 설정 후)
+docker compose up -d db
+docker compose run --rm init
+docker compose up --build -d backend frontend
+
+# 초기 설정과 실제 연동 항목은 README.md 참고

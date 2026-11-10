@@ -1,1 +1,3 @@
 /통합 문서1.xlsx
+.env*
+!.env.example

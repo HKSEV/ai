@@ -1,7 +1,19 @@
 [project]
-name = "backend"
-version = "0.1.0"
-requires-python = ">=3.14"
+name = "nowon-food-backend"
+version = "1.0.0"
+requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.141.1",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "sqlalchemy>=2.0,<2.1",
+  "pymysql>=1.1,<2",
+  "cryptography>=45,<51",
+  "google-genai>=1,<4",
+  "python-dotenv>=1,<2",
+  "httpx>=0.28,<1",
+  "python-multipart>=0.0.20,<1",
+  "pillow>=11,<14",
 ]
+
+[tool.uv]
+package = false
