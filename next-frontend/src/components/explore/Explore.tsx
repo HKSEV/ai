@@ -66,10 +66,18 @@ export default function Explore() {
   const answer = [...(active?.messages || [])].reverse().find((message) => message.role === "assistant");
   const answerId = answer?.id;
   const results = answer?.recommendations || [];
+  const reviewedParams = new URLSearchParams(results.map((item) => ["ids", String(item.id)]));
+  const { data: reviewedIds, reload: reloadReviewed } = useApiQuery<number[]>(results.length ? "/api/restaurants/reviewed?" + reviewedParams : null);
   const selected = mapSelection?.answer === answerId ? mapSelection : null;
   const busy = pending || locating || opening || deleting;
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [active?.messages.length, pending]);
   useEffect(() => { if (resultsPanel.current) resultsPanel.current.scrollTop = 0; }, [answerId]);
+  useEffect(() => {
+    if (!answerId) return;
+    const refresh = () => reloadReviewed();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [answerId, reloadReviewed]);
   const setSearchPosition = (position: MapLocation) => {
     setOrigin(position.address); setCoordinates({ latitude: position.latitude, longitude: position.longitude });
   };
@@ -153,7 +161,7 @@ export default function Explore() {
           <div className="sidebar-note"><LuLeaf /><p>검색 기록은 마이페이지에서도 관리할 수 있어요.</p></div>
         </aside>
         <section className="chat-panel" aria-label="AI와 맛집 탐색 대화">
-          <div className="chat-title"><span className="assistant-avatar"><LuLeaf /></span><div><h2>맛집 산책 도우미</h2><p>Gemini와 함께하는 동네 탐색</p></div><span className="badge">AI</span></div>
+          <div className="chat-title"><span className="assistant-avatar"><LuLeaf /></span><div><h2>맛집 산책 도우미</h2><p>AI와 함께하는 동네 탐색</p></div><span className="badge">AI</span></div>
           <div className="chat-messages" aria-live="polite">
             {!active?.messages.length && <div className="chat-welcome"><span className="welcome-symbol"><LuCompass /></span><span className="eyebrow">반가워요, {user?.nickname}님</span><h2>어떤 맛을<br />찾아 떠나볼까요?</h2><p>동네, 음식, 예산을 편하게 이야기해 주세요.<br />필요한 조건은 제가 짧게 여쭤볼게요.</p><div className="suggestions">{suggestions.map((text) => <button key={text} onClick={() => send(text)} disabled={busy}>{text}<LuArrowUp /></button>)}</div></div>}
             {active?.messages.map((message) => <div key={message.id} className={"chat-row " + message.role}>{message.role === "assistant" && <span className="message-avatar"><LuLeaf /></span>}<div className="message-bubble"><ReactMarkdown>{message.content}</ReactMarkdown></div></div>)}
@@ -176,7 +184,7 @@ export default function Explore() {
         </section>
         <section ref={resultsPanel} className="results-panel" aria-label="추천 음식점"><div className="results-title"><span><LuSparkles />이번 산책의 발견</span><small>{results.length ? results.length + "곳" : "나만의 추천"}</small></div>
           {conditions?.search_origin && conditions.radius_metres && <p className="search-origin-summary"><LuMapPin /><span>기준 위치 <strong>{conditions.search_origin.label}</strong> · 직선거리 반경 {distanceLabel(conditions.radius_metres)}</span></p>}
-          {results.length ? <>{pending && <p className="helper">새 조건을 확인하는 동안 이전 추천을 표시합니다.</p>}{answerId && results.some(hasCoordinates) && <div ref={mapArea}><RestaurantMap answerId={answerId} restaurants={results} selected={selected} onSelect={setMapSelection} /></div>}{results.map((item, index) => <RestaurantCard key={item.id} restaurant={item} index={index} selected={selected?.id === item.id} onSelect={answerId && hasCoordinates(item) ? () => {
+          {results.length ? <>{pending && <p className="helper">새 조건을 확인하는 동안 이전 추천을 표시합니다.</p>}{answerId && results.some(hasCoordinates) && <div ref={mapArea}><RestaurantMap answerId={answerId} restaurants={results} selected={selected} onSelect={setMapSelection} /></div>}{results.map((item, index) => <RestaurantCard key={item.id} restaurant={item} index={index} reviewed={reviewedIds?.includes(item.id)} selected={selected?.id === item.id} onSelect={answerId && hasCoordinates(item) ? () => {
             setMapSelection({ answer: answerId, id: item.id });
             mapArea.current?.scrollIntoView({ block: "nearest" });
           } : undefined} />)}</> : <div className="results-empty"><Empty title="당신의 한 끼를 기다려요" text="대화를 시작하면 조건에 맞는 음식점을 여기에 모아드릴게요." /><div className="tiny-plate"><LuUtensilsIcon /></div></div>}

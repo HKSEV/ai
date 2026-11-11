@@ -54,6 +54,17 @@ export interface RestaurantOption {
   is_demo: boolean;
 }
 
+export type RestaurantChoice = Pick<RestaurantOption, "id" | "name">;
+export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+export interface OpeningPeriod {
+  closed?: boolean;
+  open?: string;
+  close?: string;
+  break_start?: string;
+  break_end?: string;
+}
+
 export interface Restaurant extends RestaurantOption {
   area: string;
   latitude: number | null;
@@ -63,6 +74,8 @@ export interface Restaurant extends RestaurantOption {
   source: string;
   source_url: string | null;
   checked_at: string | null;
+  hours?: (Partial<Record<Weekday, OpeningPeriod>> & { exceptions?: Record<string, OpeningPeriod> }) | null;
+  closed_dates?: string[];
   hours_source: string | null;
   hours_source_url: string | null;
   hours_checked_at: string | null;

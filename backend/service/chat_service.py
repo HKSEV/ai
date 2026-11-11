@@ -19,6 +19,7 @@ from service.restaurant_service import find_candidates
 
 DISTANCE = r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|㎞|킬로(?:미터)?|m|미터)"
 CURRENT_LOCATION = re.compile(r"(?:내|제|현재|현)\s*위치|(?:내|제)\s*주변")
+CUISINE_WITH_SUFFIX = re.compile(r"(한식|중식|일식|양식|분식|이탈리안)\s*(?:집|식당|음식점)")
 
 
 def requested_radius(message):
@@ -70,16 +71,29 @@ def personal_context(db, user):
   return {"preferences": user.preferences, "budget_min": user.budget_min, "budget_max": user.budget_max, "recent_searches": searches, "manually_visited_categories": visited, "liked_review_categories": reviewed}
 
 
-def grounded_reason(candidate, keys):
+def reason_options(candidate, conditions):
+  category = candidate["category"].removeprefix("음식점 > ")
   labels = {
-    "area": candidate["area"] + "에 위치합니다.",
-    "category": candidate["category"] + " 음식점입니다.",
-    "menu_budget": "확인된 메뉴 가격으로 인원에 맞는 조합을 계산할 수 있습니다.",
-    "community_reviews": "서비스 내 실제 작성된 음식점 리뷰를 함께 확인할 수 있습니다.",
-    "preferences": "저장한 선호 음식 분류에 해당합니다.",
-    "distance": "제공된 좌표로 직선거리를 계산했습니다.",
+    "area": f"주소는 {candidate['address']}입니다.",
+    "category": f"등록된 음식 분류는 {category}입니다.",
+    "community_reviews": "서비스에 등록된 음식점 리뷰를 참고할 수 있습니다.",
+    "preferences": "저장하신 선호 음식 분류에 해당합니다.",
+    "atmosphere": f"확인된 매장 정보에 ‘{conditions.get('atmosphere')}’ 분위기가 표시됩니다.",
+    "purpose": f"확인된 매장 정보에 ‘{conditions.get('purpose')}’ 태그가 표시됩니다.",
   }
-  return " ".join(labels[key] for key in dict.fromkeys(keys)) or labels["category"]
+  combo = candidate["menu_combination"]
+  if combo:
+    labels["menu_budget"] = f"등록된 메뉴 가격 기준으로 {combo['party_size']}명 식사 조합의 예상 총액은 {combo['total']:,}원입니다."
+  if candidate["distance_metres"] is not None:
+    labels["distance"] = f"검색 기준 위치에서 직선거리로 약 {candidate['distance_metres']:,}m입니다."
+  return {key: labels[key] for key in candidate["available_evidence"]}
+
+
+def grounded_reason(options, ranked):
+  sentences = [options[key] for key in dict.fromkeys(ranked.evidence_keys)] or [options["category"]]
+  allowed = set(sentences)
+  allowed.update(first + " " + second for first in sentences for second in sentences if first != second)
+  return ranked.reason if ranked.reason in allowed else " ".join(sentences[:2])
 
 
 def chat(db, user, data):
@@ -118,6 +132,8 @@ def chat(db, user, data):
     changes["area"] = None
   if update.cuisine in {"식당", "음식점", "맛집"}:
     changes["cuisine"] = None
+  elif update.cuisine and (match := CUISINE_WITH_SUFFIX.fullmatch(update.cuisine)):
+    changes["cuisine"] = match.group(1)
   conditions = dict.fromkeys(changes) if update.new_search else {key: previous.get(key) for key in changes}
   conditions.update({key: value for key, value in changes.items() if value is not None})
   conditions.update(dict.fromkeys(update.clear_fields))
@@ -142,8 +158,16 @@ def chat(db, user, data):
     if not candidates:
       reply = "조건에 맞는 등록 음식점을 찾지 못했어요. 지역이나 음식 종류를 조금 넓혀 주세요."
     else:
-      ranked = generate_structured(client, RANKING_PROMPT, {"conditions": conditions, "profile": profile, "candidates": candidates}, RecommendationResult)
       by_id = {row["id"]: row for row in candidates}
+      options = {identity: reason_options(row, conditions) for identity, row in by_id.items()}
+      ranked = generate_structured(client, RANKING_PROMPT, {
+        "conditions": conditions, "profile": profile,
+        "candidates": [{
+          "id": row["id"], "name": row["name"], "category": row["category"],
+          "confirmed_matches": row["confirmed_matches"], "opening": row["opening"],
+          "reason_options": options[row["id"]],
+        } for row in candidates],
+      }, RecommendationResult)
       seen = set()
       for item in ranked.items:
         if item.restaurant_id not in by_id or item.restaurant_id in seen:
@@ -152,7 +176,7 @@ def chat(db, user, data):
         if any(key not in candidate["available_evidence"] for key in item.evidence_keys):
           raise HTTPException(502, "AI 추천 근거를 확인하지 못했습니다. 다시 시도해 주세요.")
         seen.add(item.restaurant_id)
-        candidate["reason"] = grounded_reason(candidate, item.evidence_keys)
+        candidate["reason"] = grounded_reason(options[item.restaurant_id], item)
         candidate.pop("_score", None)
         recommendations.append(candidate)
       reply = "확인된 음식점 데이터에서 조건에 맞는 곳을 골랐어요. 카드에서 메뉴와 출처를 확인해 보세요." if recommendations else "현재 확인 가능한 정보로는 추천을 확정하기 어려워요. 조건을 조금 넓혀 주세요."

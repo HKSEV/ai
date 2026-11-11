@@ -1,17 +1,19 @@
 import os
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import replace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 os.environ["APP_ENV"] = "test"
 
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from config.database import Base
 from entity.models import Restaurant, User, utcnow
+from scripts.import_restaurants import RestaurantHoursInput
 from service import restaurant_service as service
 
 
@@ -37,6 +39,30 @@ class RestaurantFactsTest(unittest.TestCase):
     restaurant = self.restaurant({"mon": {"open": "18:00", "close": "02:00"}})
     result = service.opening_status(restaurant, datetime(2026, 11, 10, 1, tzinfo=ZoneInfo("Asia/Seoul")))
     self.assertEqual(result["label"], "영업시간 내")
+
+  def test_dated_hours_override_regular_closure_and_previous_overnight_hours(self):
+    restaurant = self.restaurant({
+      "mon": {"open": "18:00", "close": "03:00"},
+      "tue": {"closed": True},
+      "exceptions": {"2026-11-10": {"open": "11:00", "close": "15:00"}},
+    })
+    for hour, label in [(1, "영업시간 외"), (12, "영업시간 내")]:
+      result = service.opening_status(restaurant, datetime(2026, 11, 10, hour, tzinfo=ZoneInfo("Asia/Seoul")))
+      self.assertEqual(result["label"], label)
+      self.assertIn("날짜별", result["basis"])
+    restaurant.hours = None
+    restaurant.closed_dates = ["2026-11-10"]
+    self.assertEqual(service.opening_status(restaurant, datetime(2026, 11, 10, 12, tzinfo=ZoneInfo("Asia/Seoul")))["label"], "휴무일")
+
+  def test_hours_import_requires_a_source_and_a_valid_exception_date(self):
+    data = {"external_id": "kakao:123", "hours": {"exceptions": {"2026-12-25": {"closed": True}}}}
+    with self.assertRaises(ValidationError):
+      RestaurantHoursInput.model_validate(data)
+    data.update(hours_source="검증용 공식 일정", hours_checked_at=datetime.now(timezone.utc))
+    self.assertEqual(RestaurantHoursInput.model_validate(data).hours, data["hours"])
+    data["hours"]["exceptions"]["2026-02-30"] = {"closed": True}
+    with self.assertRaises(ValidationError):
+      RestaurantHoursInput.model_validate(data)
 
   def test_station_search_retains_provider_matches_without_station_in_address(self):
     engine = create_engine("sqlite://")

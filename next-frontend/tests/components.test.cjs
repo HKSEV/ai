@@ -91,6 +91,39 @@ test("community form saves through API then opens persisted detail", async () =>
   assert.equal(new Headers(calls[0].options.headers).get("X-Requested-With"), "nowon-walk");
 });
 
+test("review autocomplete disambiguates matching names and clears the selection when edited", async () => {
+  const matches = [
+    { id: 11, name: "검증용 식탁", address: "서울 노원구 상계동 1" },
+    { id: 12, name: "검증용 식탁", address: "서울 노원구 공릉동 2" },
+  ];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return String(url).startsWith("/api/restaurants?") ? response(matches) : url === "/api/posts" ? response({ id: 42 }, 201) : response(page());
+  };
+  const PostForm = require("../src/components/community/PostForm.tsx").default;
+  setup(PostForm);
+  fireEvent.click(screen.getByRole("button", { name: /음식점 리뷰/ }));
+  const input = screen.getByRole("combobox", { name: "음식점" });
+  fireEvent.change(input, { target: { value: "식탁" } });
+  const place = await screen.findByRole("option", { name: /공릉동 2/ });
+  fireEvent.click(place);
+  assert.equal(input.value, "검증용 식탁");
+  fireEvent.change(input, { target: { value: "검증" } });
+  fireEvent.change(screen.getByLabelText("제목"), { target: { value: "검증용 리뷰" } });
+  fireEvent.change(screen.getByLabelText(/이야기.*10,000/), { target: { value: "자동완성으로 선택한 음식점에 남기는 검증용 리뷰입니다." } });
+  fireEvent.click(screen.getByRole("button", { name: "이야기 남기기" }));
+  await screen.findByText("검색 결과에서 음식점을 선택해 주세요.");
+  assert.equal(calls.some(({ url }) => url === "/api/posts"), false);
+  fireEvent.focus(input);
+  await screen.findByRole("option", { name: /공릉동 2/ });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.click(screen.getByRole("button", { name: "이야기 남기기" }));
+  await waitFor(() => assert.deepEqual(navigation, ["/community/42"]));
+  assert.equal(JSON.parse(calls.find(({ url }) => url === "/api/posts").options.body).restaurant_id, 12);
+});
+
 test("post edit denies another author", async () => {
   global.fetch = async () => response({ id: 2, is_owner: false });
   const PostDetail = require("../src/components/community/PostDetail.tsx").default;

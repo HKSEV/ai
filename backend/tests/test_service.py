@@ -246,6 +246,58 @@ class ServiceTests(unittest.TestCase):
     with self.factory() as db:
       self.assertEqual(db.scalar(select(func.count()).select_from(Conversation)), 0)
 
+  @patch("service.chat_service.get_client")
+  def test_recommendation_reason_uses_the_selected_restaurants_own_facts(self, client):
+    with self.factory() as db:
+      other = Restaurant(name="검증용 두번째 공릉식탁", address="서울 노원구 공릉동 두번째 주소", area="공릉동", category="한식", source="검증")
+      db.add(other); db.commit()
+      other_id = other.id
+
+    def generate(_client, _prompt, data, schema):
+      if schema is SearchConditions:
+        return SearchConditions(cuisine="한식") if data["previous"] else SearchConditions(area="공릉동")
+      options = {item["id"]: item["reason_options"] for item in data["candidates"]}
+      if data["conditions"]["cuisine"]:
+        return RecommendationResult(items=[{"restaurant_id": other_id, "evidence_keys": ["area"], "reason": options[other_id]["area"]}])
+      first = options[self.restaurant_id]
+      return RecommendationResult(items=[
+        {"restaurant_id": self.restaurant_id, "evidence_keys": ["area", "category"], "reason": first["area"] + " " + first["category"]},
+        {"restaurant_id": other_id, "evidence_keys": ["area"], "reason": first["area"] + " 노원역에서 도보 5분입니다."},
+      ])
+
+    with patch("service.chat_service.generate_structured", side_effect=generate):
+      initial = self.client.post("/api/chat", json={"message": "공릉동에서 식당을 찾아줘"})
+      self.assertEqual(initial.status_code, 200, initial.text)
+      conversation = initial.json()
+      first, second = conversation["messages"][-1]["recommendations"]
+      self.assertEqual(first["reason"], "주소는 서울 노원구 공릉동입니다. 등록된 음식 분류는 한식입니다.")
+      self.assertEqual(second["reason"], "주소는 서울 노원구 공릉동 두번째 주소입니다.")
+      followup = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "그중에서 한식으로 찾아줘"})
+      self.assertEqual(followup.status_code, 200, followup.text)
+      result = followup.json()
+      self.assertEqual(result["conditions"]["area"], "공릉동")
+      self.assertEqual([(item["id"], item["reason"]) for item in result["messages"][-1]["recommendations"]], [(other_id, second["reason"])])
+
+  def test_reviewed_restaurants_updates_until_the_current_users_last_review_is_deleted(self):
+    lookup = "/api/restaurants/reviewed?ids=" + str(self.restaurant_id) + "&ids=999"
+    payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01")
+    self.login(self.other_token)
+    self.assertEqual(self.client.post("/api/posts", json=payload).status_code, 201)
+    self.login(self.token)
+    self.assertEqual(self.client.get(lookup).json(), [])
+    own_ids = []
+    for _ in range(2):
+      created = self.client.post("/api/posts", json=payload)
+      self.assertEqual(created.status_code, 201, created.text)
+      own_ids.append(created.json()["id"])
+    self.assertEqual(self.client.get(lookup).json(), [self.restaurant_id])
+    self.assertEqual(self.client.delete("/api/posts/" + str(own_ids[0])).status_code, 204)
+    self.assertEqual(self.client.get(lookup).json(), [self.restaurant_id])
+    self.assertEqual(self.client.delete("/api/posts/" + str(own_ids[1])).status_code, 204)
+    self.assertEqual(self.client.get(lookup).json(), [])
+    self.login(self.other_token)
+    self.assertEqual(self.client.get(lookup).json(), [self.restaurant_id])
+
   @patch("service.chat_service.sleep")
   def test_gemini_retries_temporary_unavailability_once(self, pause):
     unavailable = ServerError(503, {"error": {"status": "UNAVAILABLE", "message": "검증용 일시 과부하"}})
@@ -340,12 +392,13 @@ class ServiceTests(unittest.TestCase):
     conversation = initial.json()
     self.assertEqual(conversation["conditions"]["radius_metres"], 2000)
     self.assertEqual(conversation["messages"][-1]["recommendations"][0]["id"], self.restaurant_id)
-    with self.ai(conditions={"new_search": True, "area": "공릉동", "cuisine": "양식"}, ranked={"items": [{"restaurant_id": far_id, "evidence_keys": ["area"]}]}):
+    with self.ai(conditions={"new_search": True, "area": "공릉동", "cuisine": "양식집"}, ranked={"items": [{"restaurant_id": far_id, "evidence_keys": ["area"]}]}):
       response = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "공릉동에서 양식집 찾아줘"})
     self.assertEqual(response.status_code, 200, response.text)
     updated = response.json()
     self.assertEqual(updated["id"], conversation["id"])
     self.assertEqual(updated["conditions"]["area"], "공릉동")
+    self.assertEqual(updated["conditions"]["cuisine"], "양식")
     for field in ["radius_metres", "budget_total", "party_size"]:
       self.assertIsNone(updated["conditions"][field])
     for field in ["search_origin", "new_search", "clear_fields"]:
@@ -435,12 +488,20 @@ class ServiceTests(unittest.TestCase):
       self.assertIsNone(menu_combination(menus, 4))
 
   def test_kakao_local_only_nowon_and_no_fabricated_hours(self):
-    rows = [{"id": "123", "place_name": "테스트 노원", "address_name": "서울 노원구 상계동", "category_group_code": "FD6", "category_name": "음식점 > 한식", "x": "127.05", "y": "37.65"}, {"id": "999", "place_name": "타지역", "address_name": "서울 강남구", "category_group_code": "FD6", "x": "127", "y": "37"}, {"id": "bad", "place_name": "형식 오류", "address_name": "서울 노원구", "category_group_code": "FD6", "x": "bad", "y": "bad"}]
+    rows = [{"id": "123", "place_name": "테스트 노원", "address_name": "서울 노원구 상계동", "category_group_code": "FD6", "category_name": "음식점 > 한식", "phone": " 02-123-4567 ", "x": "127.05", "y": "37.65"}, {"id": "999", "place_name": "타지역", "address_name": "서울 강남구", "category_group_code": "FD6", "x": "127", "y": "37"}, {"id": "bad", "place_name": "형식 오류", "address_name": "서울 노원구", "category_group_code": "FD6", "x": "bad", "y": "bad"}]
     with self.factory() as db, patch("service.restaurant_service.query_kakao", return_value=rows):
       restaurant_service.sync_kakao(db, "노원구 식당", None, None); db.commit()
       item = db.scalar(select(Restaurant).where(Restaurant.external_id == "kakao:123"))
       self.assertIsNotNone(item)
       self.assertIsNone(item.hours)
+      self.assertEqual(item.phone, "02-123-4567")
+      item.hours = {"exceptions": {"2026-12-25": {"closed": True}}}
+      item.hours_source, item.hours_checked_at = "매장 공식 안내", utcnow()
+      db.commit()
+      restaurant_service.sync_kakao(db, "노원구 식당", None, None); db.commit()
+      details = restaurant_service.serialize_restaurant(db, item)
+      self.assertEqual(details["phone"], "02-123-4567")
+      self.assertEqual(details["hours"]["exceptions"]["2026-12-25"], {"closed": True})
       self.assertIsNone(db.scalar(select(Restaurant).where(Restaurant.external_id == "kakao:999")))
 
 

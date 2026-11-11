@@ -46,7 +46,7 @@ test.beforeEach(() => {
   requests = [];
   global.fetch = async (url, options = {}) => {
     requests.push({ url, options });
-    const body = url === '/api/chat' ? conversation([message(1)]) : url === '/api/me/addresses' ? [] : { items: [], total: 0, page: 1, pages: 0 };
+    const body = url === '/api/chat' ? conversation([message(1)]) : url === '/api/me/addresses' || url.startsWith('/api/restaurants/reviewed?') ? [] : { items: [], total: 0, page: 1, pages: 0 };
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
 });
@@ -76,7 +76,7 @@ test('previous cards remain explicitly labelled while the next recommendation is
 test('the recommendation panel returns to the top when the next answer arrives', async () => {
   const store = makeStore();
   const initial = message(1, [restaurant]);
-  const updatedRestaurant = { ...restaurant, id: 2, name: '검증용 중계식당' };
+  const updatedRestaurant = { ...restaurant, id: 2, name: '검증용 중계식당', reason: '서울 노원구 중계동에 위치합니다.' };
   store.dispatch(setConversation(conversation([initial])));
   mount(store);
   const panel = screen.getByRole('region', { name: '추천 음식점' });
@@ -89,7 +89,26 @@ test('the recommendation panel returns to the top when the next answer arrives',
   });
   assert.equal(screen.queryByText(restaurant.name), null);
   assert.ok(screen.getByText(updatedRestaurant.name));
+  assert.equal(screen.queryByText(restaurant.reason), null);
+  assert.ok(screen.getByText(updatedRestaurant.reason));
   assert.equal(panel.scrollTop, 0);
+});
+
+test('the current user review mark is refreshed independently of saved recommendations', async () => {
+  let reviewed = [];
+  const fallback = global.fetch;
+  global.fetch = (url, options) => url.startsWith('/api/restaurants/reviewed?')
+    ? Promise.resolve(new Response(JSON.stringify(reviewed))) : fallback(url, options);
+  const store = makeStore();
+  store.dispatch(setConversation(conversation([message(1, [restaurant])])));
+  mount(store);
+  assert.equal(screen.queryByText('리뷰를 작성했어요!'), null);
+  reviewed = [restaurant.id];
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  assert.ok(screen.getByText('리뷰를 작성했어요!'));
+  reviewed = [];
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  assert.equal(screen.queryByText('리뷰를 작성했어요!'), null);
 });
 
 test('denied location permission still permits a typed origin and a chat request', async () => {

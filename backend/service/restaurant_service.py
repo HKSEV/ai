@@ -13,50 +13,62 @@ from service.common import timestamp
 
 KST = ZoneInfo("Asia/Seoul")
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+REGULAR_HOURS_BASIS = "등록된 요일별 일정 기준 · 날짜별 변경 여부는 별도로 확인하세요."
+EXCEPTION_HOURS_BASIS = "등록된 날짜별 일정 기준 · 방문 전 확인 권장"
 
 
 def fresh(checked_at):
   return bool(checked_at and utcnow() - timedelta(days=settings.menu_max_age_days) <= checked_at <= utcnow() + timedelta(minutes=5))
 
 
+def hours_for_date(hours, closed_dates, day):
+  key = day.isoformat()
+  if key in closed_dates:
+    return {"closed": True}, True
+  exceptions = hours.get("exceptions") or {}
+  if key in exceptions:
+    return exceptions[key], True
+  return hours.get(DAYS[day.weekday()]), False
+
+
 def opening_status(restaurant, visit_at=None):
-  if not restaurant.hours or not restaurant.hours_source or not fresh(restaurant.hours_checked_at):
+  if not restaurant.hours_source or not fresh(restaurant.hours_checked_at):
     return {"label": "확인 필요", "basis": "영업시간 정보가 없거나 확인 기한이 지났습니다.", "is_realtime": False}
+  hours, closed_dates = restaurant.hours or {}, restaurant.closed_dates or []
   moment = visit_at or datetime.now(KST)
   moment = moment.replace(tzinfo=KST) if moment.tzinfo is None else moment.astimezone(KST)
-  if moment.date().isoformat() in (restaurant.closed_dates or []):
-    return {"label": "휴무일", "basis": "등록된 휴무일 기준 · 실시간 정보 아님", "is_realtime": False}
+  today, date_override = hours_for_date(hours, closed_dates, moment.date())
   try:
-    for offset in [0, -1]:
+    for offset in ([0] if date_override else [0, -1]):
       day = moment.date() + timedelta(days=offset)
-      if day.isoformat() in (restaurant.closed_dates or []):
+      period, exception = hours_for_date(hours, closed_dates, day)
+      if not period or period.get("closed"):
         continue
-      hours = restaurant.hours.get(DAYS[day.weekday()])
-      if not hours or hours.get("closed"):
-        continue
-      start = datetime.combine(day, time.fromisoformat(hours["open"]), KST)
-      end = datetime.combine(day, time.fromisoformat(hours["close"]), KST)
+      start = datetime.combine(day, time.fromisoformat(period["open"]), KST)
+      end = datetime.combine(day, time.fromisoformat(period["close"]), KST)
       if end <= start:
         end += timedelta(days=1)
       if start <= moment < end:
-        if hours.get("break_start") and hours.get("break_end"):
-          pause = datetime.combine(day, time.fromisoformat(hours["break_start"]), KST)
-          resume = datetime.combine(day, time.fromisoformat(hours["break_end"]), KST)
+        basis = EXCEPTION_HOURS_BASIS if exception else REGULAR_HOURS_BASIS
+        if period.get("break_start") and period.get("break_end"):
+          pause = datetime.combine(day, time.fromisoformat(period["break_start"]), KST)
+          resume = datetime.combine(day, time.fromisoformat(period["break_end"]), KST)
           if pause < start:
             pause += timedelta(days=1)
           if resume <= pause:
             resume += timedelta(days=1)
           if pause <= moment < resume:
-            return {"label": "브레이크타임", "basis": "등록된 일반 영업시간 기준 · 실시간 정보 아님", "is_realtime": False}
-        return {"label": "영업시간 내", "basis": "등록된 일반 영업시간 기준 · 방문 전 확인 권장", "is_realtime": False}
-  except (KeyError, ValueError, TypeError):
+            return {"label": "브레이크타임", "basis": basis, "is_realtime": False}
+        return {"label": "영업시간 내", "basis": basis, "is_realtime": False}
+  except (AttributeError, KeyError, ValueError, TypeError):
     return {"label": "확인 필요", "basis": "영업시간 형식 확인이 필요합니다.", "is_realtime": False}
-  today = restaurant.hours.get(DAYS[moment.weekday()])
   if today is None:
     return {"label": "확인 필요", "basis": "해당 요일의 영업시간 정보가 없습니다.", "is_realtime": False}
-  if today.get("closed"):
-    return {"label": "휴무일", "basis": "등록된 일반 영업시간 기준 · 실시간 정보 아님", "is_realtime": False}
-  return {"label": "영업시간 외", "basis": "등록된 일반 영업시간 기준 · 실시간 정보 아님", "is_realtime": False}
+  return {
+    "label": "휴무일" if today.get("closed") else "영업시간 외",
+    "basis": EXCEPTION_HOURS_BASIS if date_override else REGULAR_HOURS_BASIS,
+    "is_realtime": False,
+  }
 
 
 def menu_combination(menus, party_size):
@@ -105,11 +117,12 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
   else:
     map_url = directions = "https://map.kakao.com/link/search/" + map_target
   distance = distance_metres(latitude, longitude, item.latitude, item.longitude)
+  hours_current = item.hours_source and fresh(item.hours_checked_at)
   return {
     "id": item.id, "name": item.name, "address": item.address, "area": item.area, "category": item.category,
     "phone": item.phone, "latitude": item.latitude, "longitude": item.longitude, "tags": item.tags,
     "source": item.source, "source_url": item.source_url, "checked_at": timestamp(item.checked_at),
-    "is_demo": item.is_demo, "hours": item.hours, "closed_dates": item.closed_dates,
+    "is_demo": item.is_demo, "hours": item.hours if hours_current else None, "closed_dates": (item.closed_dates or []) if hours_current else [],
     "hours_source": item.hours_source, "hours_source_url": item.hours_source_url, "hours_checked_at": timestamp(item.hours_checked_at),
     "opening": opening_status(item, visit_at),
     "menus": [{"id": menu.id, "name": menu.name, "price": menu.price, "servings": menu.servings, "available": menu.available, "source": menu.source, "source_url": menu.source_url, "checked_at": timestamp(menu.checked_at), "is_current": fresh(menu.checked_at)} for menu in menus],
@@ -156,7 +169,7 @@ def sync_kakao(db, query, latitude, longitude, radius_metres=None):
     item.address = address[:300]
     item.area = (data.get("address_name") or address).replace("서울 ", "").replace("노원구 ", "")[:100]
     item.category = (data.get("category_name") or "음식점")[:100]
-    item.phone = (data.get("phone") or "")[:40] or None
+    item.phone = (data.get("phone") or "").strip()[:40] or None
     item.latitude, item.longitude = lat, lng
     item.source = "카카오 로컬 검색"
     item.source_url = "https://place.map.kakao.com/" + str(data["id"])
@@ -222,8 +235,9 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
     if any(pref in haystack for pref in user.preferences):
       evidence.append("preferences")
     for key in ["atmosphere", "purpose"]:
-      if conditions.get(key) and any(conditions[key] in tag or tag in conditions[key] for tag in (row.tags or [])):
+      if conditions.get(key) and conditions[key] in (row.tags or []):
         confirmed.append(conditions[key])
+        evidence.append(key)
     candidate["available_evidence"] = evidence
     candidate["confirmed_matches"] = confirmed
     candidate["budget_note"] = None if combo else "메뉴·가격 또는 인원 정보가 부족해 예산 충족 여부를 확인할 수 없습니다."

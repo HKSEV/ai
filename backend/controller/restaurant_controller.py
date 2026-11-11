@@ -3,7 +3,7 @@ from sqlalchemy import or_, select
 
 from config.database import get_db
 from config.settings import settings
-from entity.models import Restaurant
+from entity.models import Post, Restaurant
 from service.auth_service import current_user
 from service.restaurant_service import serialize_restaurant
 
@@ -21,6 +21,11 @@ def restaurants(query: str = Query("", max_length=100), user=Depends(current_use
     statement = statement.where(or_(Restaurant.name.ilike("%" + escaped + "%", escape="\\"), Restaurant.area.ilike("%" + escaped + "%", escape="\\")))
   rows = db.scalars(statement.order_by(Restaurant.name).limit(30)).all()
   return [{"id": item.id, "name": item.name, "address": item.address, "category": item.category, "is_demo": item.is_demo} for item in rows]
+
+
+@router.get("/reviewed")
+def reviewed_restaurants(ids: list[int] = Query(min_length=1, max_length=30), user=Depends(current_user), db=Depends(get_db)):
+  return db.scalars(select(Post.restaurant_id).where(Post.user_id == user.id, Post.kind == "review", Post.restaurant_id.in_(ids)).distinct()).all()
 
 
 @router.get("/{identity}")
