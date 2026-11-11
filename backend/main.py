@@ -13,7 +13,13 @@ from service.auth_service import SESSION_COOKIE
 
 
 app = FastAPI(title="노원맛집산책 API", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_url], allow_credentials=True, allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-Requested-With"])
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins=[settings.frontend_url],
+  allow_credentials=True,
+  allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allow_headers=["Content-Type", "X-Requested-With"]
+)
 
 
 @app.middleware("http")
@@ -57,3 +63,9 @@ def status():
 
 for controller in [auth_controller, chat_controller, community_controller, profile_controller, restaurant_controller, media_controller]:
   app.include_router(controller.router)
+
+
+# cd .\backend
+# uv sync --frozen
+# uv run python -m scripts.init_db
+# uv run uvicorn main:app --reload --port 8000

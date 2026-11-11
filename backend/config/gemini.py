@@ -11,7 +11,7 @@ from config.settings import settings
 def get_client():
   if not settings.gemini_api_key or not settings.gemini_model:
     raise HTTPException(503, "Gemini API 키와 사용 가능한 모델 ID를 설정해 주세요.")
-  return genai.Client(api_key=settings.gemini_api_key, http_options=types.HttpOptions(timeout=30000))
+  return genai.Client(api_key=settings.gemini_api_key, http_options=types.HttpOptions(timeout=90000))
 
 
 CONDITION_PROMPT = """
