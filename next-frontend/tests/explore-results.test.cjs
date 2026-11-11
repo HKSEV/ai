@@ -73,6 +73,25 @@ test('previous cards remain explicitly labelled while the next recommendation is
   await act(async () => { store.dispatch(setPending(false)); });
 });
 
+test('the recommendation panel returns to the top when the next answer arrives', async () => {
+  const store = makeStore();
+  const initial = message(1, [restaurant]);
+  const updatedRestaurant = { ...restaurant, id: 2, name: '검증용 중계식당' };
+  store.dispatch(setConversation(conversation([initial])));
+  mount(store);
+  const panel = screen.getByRole('region', { name: '추천 음식점' });
+  panel.scrollTop = 200;
+  await act(async () => { store.dispatch(setPending(true)); });
+  assert.equal(panel.scrollTop, 200);
+  await act(async () => {
+    store.dispatch(setConversation(conversation([initial, message(2, [updatedRestaurant])])));
+    store.dispatch(setPending(false));
+  });
+  assert.equal(screen.queryByText(restaurant.name), null);
+  assert.ok(screen.getByText(updatedRestaurant.name));
+  assert.equal(panel.scrollTop, 0);
+});
+
 test('denied location permission still permits a typed origin and a chat request', async () => {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition(_accept, reject) { reject({ code: 1 }); } } });
   const store = makeStore();

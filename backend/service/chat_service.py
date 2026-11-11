@@ -2,10 +2,11 @@ import json
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal
+from time import sleep
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from google.genai import types
+from google.genai import errors, types
 from sqlalchemy import func, select
 
 from config.gemini import CONDITION_PROMPT, RANKING_PROMPT, get_client
@@ -36,14 +37,18 @@ def requested_radius(message):
 
 def generate_structured(client, prompt, data, schema):
   try:
-    response = client.models.generate_content(
-      model=settings.gemini_model,
-      contents=json.dumps(data, ensure_ascii=False),
-      config=types.GenerateContentConfig(
-        system_instruction=prompt, response_mime_type="application/json",
-        response_json_schema=schema.model_json_schema(), temperature=0.2,
-      ),
+    contents = json.dumps(data, ensure_ascii=False)
+    config = types.GenerateContentConfig(
+      system_instruction=prompt, response_mime_type="application/json",
+      response_json_schema=schema.model_json_schema(), temperature=0.2,
     )
+    try:
+      response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=config)
+    except errors.ServerError as error:
+      if error.code != 503:
+        raise
+      sleep(1)
+      response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=config)
     return schema.model_validate_json(response.text)
   except Exception:
     raise HTTPException(502, "AI 응답을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.") from None
@@ -91,26 +96,34 @@ def chat(db, user, data):
   previous = dict(conversation.conditions)
   previous_origin = previous.pop("search_origin", None)
   radius = requested_radius(data.message)
-  if latitude is None and not origin_text and previous_origin and not CURRENT_LOCATION.search(data.message):
-    origin_text = previous_origin["label"]
-    latitude, longitude = previous_origin["latitude"], previous_origin["longitude"]
   if not origin_text and latitude is None:
     address = db.scalar(select(Address).where(Address.user_id == user.id, Address.is_default.is_(True)))
     if address:
       origin_text, latitude, longitude = address.address, address.latitude, address.longitude
+  default_origin = origin_text, latitude, longitude
+  use_previous_origin = previous_origin and data.latitude is None and not data.origin_text and not CURRENT_LOCATION.search(data.message)
+  if use_previous_origin:
+    origin_text = previous_origin["label"]
+    latitude, longitude = previous_origin["latitude"], previous_origin["longitude"]
   profile = personal_context(db, user)
-  conditions = generate_structured(client, CONDITION_PROMPT, {
+  update = generate_structured(client, CONDITION_PROMPT, {
     "message": data.message, "history": [{"role": row.role, "content": row.content} for row in reversed(history)],
     "previous": previous, "profile": profile, "origin": origin_text,
     "coordinates_provided": latitude is not None, "now": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
-  }, SearchConditions).model_dump(mode="json")
-  if radius is not None:
+  }, SearchConditions)
+  if update.new_search and use_previous_origin:
+    origin_text, latitude, longitude = default_origin
+  changes = update.model_dump(mode="json", exclude={"new_search", "clear_fields", "clarification"})
+  if update.area and CURRENT_LOCATION.fullmatch(update.area):
+    changes["area"] = None
+  if update.cuisine in {"식당", "음식점", "맛집"}:
+    changes["cuisine"] = None
+  conditions = dict.fromkeys(changes) if update.new_search else {key: previous.get(key) for key in changes}
+  conditions.update({key: value for key, value in changes.items() if value is not None})
+  conditions.update(dict.fromkeys(update.clear_fields))
+  if radius is not None and "radius_metres" not in update.clear_fields:
     conditions["radius_metres"] = radius
-  if conditions.get("area") and CURRENT_LOCATION.fullmatch(conditions["area"]):
-    conditions["area"] = None
-  if conditions.get("cuisine") in {"식당", "음식점", "맛집"}:
-    conditions["cuisine"] = None
-  clarification = conditions.pop("clarification", None)
+  clarification = update.clarification
   if conditions.get("radius_metres") and latitude is not None:
     clarification = None
   if not conditions.get("area") and not origin_text and latitude is None:
@@ -119,7 +132,7 @@ def chat(db, user, data):
     clarification = "총예산에 맞춰 메뉴를 고를게요. 몇 분이 함께 방문하시나요?"
   if conditions.get("radius_metres") and latitude is None:
     clarification = "반경 검색의 기준 위치를 정해 주세요. 현재 위치나 지도에서 선택한 지점을 사용할 수 있어요."
-  if not conditions.get("budget_total") and conditions.get("party_size") and user.budget_max:
+  if not conditions.get("budget_total") and conditions.get("party_size") and user.budget_max and "budget_total" not in update.clear_fields:
     conditions["budget_total"] = user.budget_max * conditions["party_size"]
   recommendations, notices = [], []
   if clarification:

@@ -61,6 +61,7 @@ export default function Explore() {
   const [error, setError] = useState("");
   const locked = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const resultsPanel = useRef<HTMLElement>(null);
   const mapArea = useRef<HTMLDivElement>(null);
   const answer = [...(active?.messages || [])].reverse().find((message) => message.role === "assistant");
   const answerId = answer?.id;
@@ -68,6 +69,7 @@ export default function Explore() {
   const selected = mapSelection?.answer === answerId ? mapSelection : null;
   const busy = pending || locating || opening || deleting;
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [active?.messages.length, pending]);
+  useEffect(() => { if (resultsPanel.current) resultsPanel.current.scrollTop = 0; }, [answerId]);
   const setSearchPosition = (position: MapLocation) => {
     setOrigin(position.address); setCoordinates({ latitude: position.latitude, longitude: position.longitude });
   };
@@ -172,7 +174,7 @@ export default function Explore() {
             <p className="compose-note">검색은 방문 기록으로 저장되지 않아요. 음식점 정보와 가격은 방문 전 확인해 주세요.</p>
           </div>
         </section>
-        <section className="results-panel" aria-label="추천 음식점"><div className="results-title"><span><LuSparkles />이번 산책의 발견</span><small>{results.length ? results.length + "곳" : "나만의 추천"}</small></div>
+        <section ref={resultsPanel} className="results-panel" aria-label="추천 음식점"><div className="results-title"><span><LuSparkles />이번 산책의 발견</span><small>{results.length ? results.length + "곳" : "나만의 추천"}</small></div>
           {conditions?.search_origin && conditions.radius_metres && <p className="search-origin-summary"><LuMapPin /><span>기준 위치 <strong>{conditions.search_origin.label}</strong> · 직선거리 반경 {distanceLabel(conditions.radius_metres)}</span></p>}
           {results.length ? <>{pending && <p className="helper">새 조건을 확인하는 동안 이전 추천을 표시합니다.</p>}{answerId && results.some(hasCoordinates) && <div ref={mapArea}><RestaurantMap answerId={answerId} restaurants={results} selected={selected} onSelect={setMapSelection} /></div>}{results.map((item, index) => <RestaurantCard key={item.id} restaurant={item} index={index} selected={selected?.id === item.id} onSelect={answerId && hasCoordinates(item) ? () => {
             setMapSelection({ answer: answerId, id: item.id });

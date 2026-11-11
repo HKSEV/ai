@@ -7,12 +7,14 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ["APP_ENV"] = "test"
 
 import httpx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from google.genai.errors import ServerError
 from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
@@ -214,13 +216,19 @@ class ServiceTests(unittest.TestCase):
     def followup(_client, prompt, data, schema):
       if schema is SearchConditions:
         captured.append(data)
-        return schema.model_validate({**conversation["conditions"], "cuisine": "한식"})
+        return schema.model_validate({"cuisine": "한식"})
       return schema.model_validate({"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["area"]}]})
     with patch("service.chat_service.generate_structured", side_effect=followup):
       next_response = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "한식으로 바꿔줘"})
     self.assertEqual(next_response.status_code, 200, next_response.text)
     self.assertEqual(captured[0]["previous"]["party_size"], 4)
     self.assertEqual(len(captured[0]["history"]), 2)
+    updated = next_response.json()
+    self.assertEqual(updated["conditions"]["area"], "공릉동")
+    self.assertEqual(updated["conditions"]["cuisine"], "한식")
+    self.assertEqual(updated["conditions"]["party_size"], 4)
+    self.assertEqual(updated["conditions"]["budget_total"], 60000)
+    self.assertEqual(updated["messages"][-1]["recommendations"][0]["id"], self.restaurant_id)
     self.login(self.other_token)
     self.assertEqual(self.client.get("/api/conversations/" + str(conversation["id"])).status_code, 404)
     self.assertEqual(self.client.delete("/api/conversations/" + str(conversation["id"])).status_code, 404)
@@ -237,6 +245,24 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(response.status_code, 502, response.text)
     with self.factory() as db:
       self.assertEqual(db.scalar(select(func.count()).select_from(Conversation)), 0)
+
+  @patch("service.chat_service.sleep")
+  def test_gemini_retries_temporary_unavailability_once(self, pause):
+    unavailable = ServerError(503, {"error": {"status": "UNAVAILABLE", "message": "검증용 일시 과부하"}})
+    generate = Mock(side_effect=[unavailable, SimpleNamespace(text='{"area":"공릉동"}')])
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    result = chat_service.generate_structured(client, "검증용 프롬프트", {}, SearchConditions)
+    self.assertEqual(result.area, "공릉동")
+    self.assertEqual(generate.call_count, 2)
+    first_call, retry_call = generate.call_args_list
+    self.assertEqual(first_call, retry_call)
+    pause.assert_called_once_with(1)
+    generate.reset_mock(side_effect=True)
+    generate.side_effect = unavailable
+    with self.assertRaises(HTTPException) as failure:
+      chat_service.generate_structured(client, "검증용 프롬프트", {}, SearchConditions)
+    self.assertEqual(failure.exception.status_code, 502)
+    self.assertEqual(generate.call_count, 2)
 
   @patch("service.chat_service.get_client")
   def test_missing_conditions_ask_and_default_address_used(self, client):
@@ -293,6 +319,40 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual(followup.json()["conditions"]["radius_metres"], 500)
       self.assertEqual(followup.json()["conditions"]["search_origin"], conversation["conditions"]["search_origin"])
     self.assertEqual(seen, [[self.restaurant_id], [self.restaurant_id]])
+    with self.ai(conditions={"clear_fields": ["radius_metres"]}, ranked={"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["area"]}]}):
+      response = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "반경 500m 제한 풀어줘"})
+    self.assertEqual(response.status_code, 200, response.text)
+    self.assertIsNone(response.json()["conditions"]["radius_metres"])
+    self.assertNotIn("search_origin", response.json()["conditions"])
+
+  @patch("service.chat_service.get_client")
+  def test_new_area_search_drops_the_previous_radius_and_budget(self, client):
+    with self.factory() as db:
+      near = db.get(Restaurant, self.restaurant_id)
+      near.latitude, near.longitude = 37.655, 127.061
+      near.address, near.area = "서울 노원구 상계동", "상계동"
+      far = Restaurant(name="검증용 공릉양식", address="서울 노원구 공릉동", area="공릉동", category="양식", source="검증", latitude=37.622, longitude=127.075)
+      db.add(far); db.commit()
+      far_id = far.id
+    with self.ai(conditions={"cuisine": "한식", "party_size": 2, "budget_total": 40000}, ranked={"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["distance"]}]}):
+      initial = self.client.post("/api/chat", json={"message": "내 위치에서 2km 이내 2명 4만원 한식집", "origin_text": "현재 위치", "latitude": 37.655, "longitude": 127.061})
+    self.assertEqual(initial.status_code, 200, initial.text)
+    conversation = initial.json()
+    self.assertEqual(conversation["conditions"]["radius_metres"], 2000)
+    self.assertEqual(conversation["messages"][-1]["recommendations"][0]["id"], self.restaurant_id)
+    with self.ai(conditions={"new_search": True, "area": "공릉동", "cuisine": "양식"}, ranked={"items": [{"restaurant_id": far_id, "evidence_keys": ["area"]}]}):
+      response = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "공릉동에서 양식집 찾아줘"})
+    self.assertEqual(response.status_code, 200, response.text)
+    updated = response.json()
+    self.assertEqual(updated["id"], conversation["id"])
+    self.assertEqual(updated["conditions"]["area"], "공릉동")
+    for field in ["radius_metres", "budget_total", "party_size"]:
+      self.assertIsNone(updated["conditions"][field])
+    for field in ["search_origin", "new_search", "clear_fields"]:
+      self.assertNotIn(field, updated["conditions"])
+    self.assertEqual(updated["messages"][:2], conversation["messages"])
+    self.assertEqual(updated["messages"][-1]["recommendations"][0]["id"], far_id)
+    self.assertIsNone(updated["messages"][-1]["recommendations"][0]["distance_metres"])
 
   def test_oauth_signup_repeat_nickname_state_and_logout(self):
     configured = replace(settings, kakao_rest_api_key="test-key")

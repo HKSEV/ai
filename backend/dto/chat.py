@@ -21,6 +21,8 @@ class ChatRequest(InputModel):
 
 
 class SearchConditions(InputModel):
+  new_search: bool = False
+  clear_fields: list[Literal["area", "cuisine", "budget_total", "party_size", "visit_at", "atmosphere", "purpose", "radius_metres"]] = Field(default_factory=list, max_length=8)
   area: str | None = Field(default=None, max_length=100)
   cuisine: str | None = Field(default=None, max_length=80)
   budget_total: int | None = Field(default=None, ge=1000, le=20000000)

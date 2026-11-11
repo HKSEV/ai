@@ -171,17 +171,18 @@ def sync_kakao(db, query, latitude, longitude, radius_metres=None):
 def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   notices = []
   matched_ids = set()
-  area = conditions.get("area") or (origin_text if origin_text != "현재 위치" else None) or "노원구"
+  requested_area = conditions.get("area")
+  area = requested_area or (origin_text if origin_text != "현재 위치" else None) or "노원구"
   radius_metres = conditions.get("radius_metres")
   cuisine = conditions.get("cuisine")
   if settings.kakao_local_key and settings.kakao_storage_allowed:
     try:
       if radius_metres:
-        requested_area = conditions.get("area")
         query = (requested_area + " " if requested_area and requested_area not in {"노원", "노원구", "서울 노원구"} else "") + (cuisine or "음식점")
       else:
         query = "노원구 " + area + " " + (cuisine or "음식점")
-      matched_ids = sync_kakao(db, query, latitude, longitude, radius_metres)
+      search_latitude, search_longitude = (latitude, longitude) if radius_metres or not requested_area else (None, None)
+      matched_ids = sync_kakao(db, query, search_latitude, search_longitude, radius_metres)
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
       notices.append("외부 음식점 조회가 지연되어 저장된 데이터로 탐색했습니다.")
   else:
@@ -200,7 +201,7 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
       if distance is None or distance > radius_metres:
         continue
     haystack = row.name + " " + row.address + " " + row.area + " " + row.category + " " + " ".join(row.tags or [])
-    if conditions.get("area") and conditions["area"] not in {"노원", "노원구", "서울 노원구"} and conditions["area"] not in haystack and row.id not in matched_ids:
+    if requested_area and requested_area not in {"노원", "노원구", "서울 노원구"} and requested_area not in haystack and row.id not in matched_ids:
       continue
     candidate = serialize_restaurant(db, row, conditions, latitude, longitude)
     menu_text = " ".join(menu["name"] for menu in candidate["menus"])

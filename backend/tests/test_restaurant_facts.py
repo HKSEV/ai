@@ -49,11 +49,13 @@ class RestaurantFactsTest(unittest.TestCase):
         "address_name": "서울 노원구 상계동 1", "x": "127.061", "y": "37.655",
       }]
       configured = replace(service.settings, kakao_local_key="test-only", kakao_storage_allowed=True)
-      with patch.object(service, "settings", configured), patch.object(service, "query_kakao", return_value=data):
-        candidates, _ = service.find_candidates(db, user, {"area": "노원역", "cuisine": "한식"}, None, None, None)
+      with patch.object(service, "settings", configured), patch.object(service, "query_kakao", return_value=data) as lookup:
+        candidates, _ = service.find_candidates(db, user, {"area": "노원역", "cuisine": "한식"}, "현재 위치", 37.60, 127.061)
+      lookup.assert_called_once_with("노원구 노원역 한식", None, None, None)
       self.assertEqual(len(candidates), 1)
       self.assertEqual(candidates[0]["name"], "검증용 가상식당")
       self.assertIsNone(candidates[0]["menu_combination"])
+      self.assertGreater(candidates[0]["distance_metres"], 5000)
     engine.dispose()
 
 
