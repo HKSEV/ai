@@ -42,6 +42,8 @@ CREATE TABLE restaurants (
 CREATE TABLE users (
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	kakao_id VARCHAR(64) NOT NULL,
+	email VARCHAR(320),
+	address_setup_pending BOOL NOT NULL DEFAULT false,
 	nickname VARCHAR(40) NOT NULL,
 	nickname_key VARCHAR(40) NOT NULL,
 	preferences JSON NOT NULL,

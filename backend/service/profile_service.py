@@ -9,7 +9,11 @@ from service.upload_service import delete_unlinked_uploads
 
 
 def serialize_user(user):
-  return {"id": user.id, "nickname": user.nickname, "preferences": user.preferences, "budget_min": user.budget_min, "budget_max": user.budget_max, "created_at": timestamp(user.created_at)}
+  return {
+    "id": user.id, "nickname": user.nickname, "email": user.email,
+    "address_setup_pending": user.address_setup_pending, "preferences": user.preferences,
+    "budget_min": user.budget_min, "budget_max": user.budget_max, "created_at": timestamp(user.created_at),
+  }
 
 
 def update_profile(db, user, data):
@@ -48,6 +52,8 @@ def save_address(db, user, data, identity=None):
       entry.is_default = False
   for key, value in values.items():
     setattr(item, key, value)
+  if item.is_default and item.latitude is not None and item.longitude is not None:
+    user.address_setup_pending = False
   db.add(item)
   db.commit()
   return serialize_address(item)

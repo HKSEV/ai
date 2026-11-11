@@ -49,6 +49,7 @@ services:
       context: ./next-frontend
       args:
         BACKEND_URL: http://backend:8000
+        KAKAO_JAVASCRIPT_KEY: ${KAKAO_JAVASCRIPT_KEY:-}
     ports:
       - "3000:3000"
     depends_on:

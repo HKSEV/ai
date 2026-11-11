@@ -36,6 +36,10 @@ export function json(method: string, body: unknown): RequestInit {
   return { method, body: JSON.stringify(body) };
 }
 
+export function deleteConversation(id: number) {
+  return api<void>("/api/conversations/" + id, { method: "DELETE" });
+}
+
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
 }

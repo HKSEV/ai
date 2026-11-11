@@ -31,9 +31,11 @@ def callback(
     auth_service.consume_state(db, state, cookie)
     if error or not code:
       raise HTTPException(400, "카카오 로그인이 취소되었습니다.")
-    user = auth_service.find_or_create_user(db, auth_service.kakao_identity(code))
+    kakao_id, email = auth_service.kakao_identity(code)
+    user = auth_service.find_or_create_user(db, kakao_id, email)
     token = auth_service.create_session(db, user)
-    response = RedirectResponse(settings.frontend_url + "/explore", status_code=303)
+    destination = "/onboarding/address" if user.address_setup_pending else "/explore"
+    response = RedirectResponse(settings.frontend_url + destination, status_code=303)
     response.set_cookie(auth_service.SESSION_COOKIE, token, max_age=settings.session_days * 86400, httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
   except HTTPException:
     response = RedirectResponse(settings.frontend_url + "/?login_error=1", status_code=303)

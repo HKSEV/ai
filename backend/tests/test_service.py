@@ -260,21 +260,64 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual(self.client.post("/api/chat", json={"message": "공릉동 식사"}).status_code, 503)
     get_client.cache_clear()
 
+  @patch("service.chat_service.get_client")
+  def test_radius_filters_before_ranking_and_retains_origin(self, client):
+    with self.factory() as db:
+      near = db.get(Restaurant, self.restaurant_id)
+      near.latitude, near.longitude = 37.651, 127.06
+      for name, latitude in [("반경 밖", 37.68), ("좌표 없음", None)]:
+        db.add(Restaurant(name=name, address="서울 노원구", area="노원구", category="한식", source="검증", latitude=latitude, longitude=127.06 if latitude else None))
+      db.commit()
+    seen = []
+
+    def generate(_client, prompt, data, schema):
+      if schema is SearchConditions:
+        self.assertNotIn("search_origin", data["previous"])
+        return schema(area="내 위치", cuisine="식당", radius_metres=9000, clarification="어느 지역을 찾으시나요?")
+      seen.append([item["id"] for item in data["candidates"]])
+      return RecommendationResult(items=[{"restaurant_id": self.restaurant_id, "evidence_keys": ["distance"]}])
+
+    with patch("service.chat_service.generate_structured", side_effect=generate):
+      missing = self.client.post("/api/chat", json={"message": "내 위치에서 2km 이내 식당"})
+      self.assertEqual(missing.status_code, 200)
+      self.assertIn("기준 위치", missing.json()["messages"][-1]["content"])
+      self.client.post("/api/me/addresses", json={"label": "집", "address": "서울 노원구 테스트 주소", "latitude": 37.65, "longitude": 127.06})
+      response = self.client.post("/api/chat", json={"message": "내 위치에서 2km 이내 식당"})
+      self.assertEqual(response.status_code, 200, response.text)
+      conversation = response.json()
+      self.assertEqual(conversation["conditions"]["radius_metres"], 2000)
+      self.assertEqual(conversation["conditions"]["search_origin"]["label"], "서울 노원구 테스트 주소")
+      self.assertLess(conversation["messages"][-1]["recommendations"][0]["distance_metres"], 2000)
+      followup = self.client.post("/api/chat", json={"conversation_id": conversation["id"], "message": "반경 0.5킬로미터로 좁혀줘"})
+      self.assertEqual(followup.status_code, 200, followup.text)
+      self.assertEqual(followup.json()["conditions"]["radius_metres"], 500)
+      self.assertEqual(followup.json()["conditions"]["search_origin"], conversation["conditions"]["search_origin"])
+    self.assertEqual(seen, [[self.restaurant_id], [self.restaurant_id]])
+
   def test_oauth_signup_repeat_nickname_state_and_logout(self):
     configured = replace(settings, kakao_rest_api_key="test-key")
-    with patch("service.auth_service.settings", configured), patch("service.auth_service.kakao_identity", return_value="999"):
+    with patch("service.auth_service.settings", configured), patch("service.auth_service.kakao_identity", return_value=("999", "walk@example.com")):
       url = self.client.get("/api/auth/kakao/authorize").json()["authorization_url"]
       state = httpx.URL(url).params["state"]
       response = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertEqual(response.status_code, 303)
-      self.assertTrue(response.headers["location"].endswith("/explore"))
-      nickname = self.client.get("/api/auth/me").json()["nickname"]
+      self.assertTrue(response.headers["location"].endswith("/onboarding/address"))
+      user = self.client.get("/api/auth/me").json()
+      nickname = user["nickname"]
       self.assertTrue(nickname)
+      self.assertTrue(user["address_setup_pending"])
+      self.assertEqual(user["email"], "walk@example.com")
+      self.assertEqual(self.client.put("/api/me", json=self.profile(email="changed@example.com")).status_code, 422)
+      address = self.client.post("/api/me/addresses", json={"label": "집", "address": "서울 노원구 공릉로 1", "latitude": 37.65, "longitude": 127.06})
+      self.assertEqual(address.status_code, 201, address.text)
+      self.assertTrue(address.json()["is_default"])
+      self.assertFalse(self.client.get("/api/auth/me").json()["address_setup_pending"])
       self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
       self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
       url = self.client.get("/api/auth/kakao/authorize").json()["authorization_url"]
       state = httpx.URL(url).params["state"]
-      self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
+      returning = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
+      self.assertTrue(returning.headers["location"].endswith("/explore"))
       self.assertEqual(self.client.get("/api/auth/me").json()["nickname"], nickname)
       replay = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertIn("login_error", replay.headers["location"])
@@ -291,7 +334,7 @@ class ServiceTests(unittest.TestCase):
       return httpx.Response(200, json={"id": 123456})
     real_client = httpx.Client
     with patch("service.auth_service.settings", replace(settings, kakao_rest_api_key="test", kakao_client_secret="test-secret")), patch("service.auth_service.httpx.Client", side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs)):
-      self.assertEqual(auth_service.kakao_identity("test-code"), "123456")
+      self.assertEqual(auth_service.kakao_identity("test-code"), ("123456", None))
     self.assertEqual(requests[0].method, "POST")
     self.assertIn(b"client_secret=test-secret", requests[0].content)
     self.assertEqual(requests[1].headers["Authorization"], "Bearer server-only-token")

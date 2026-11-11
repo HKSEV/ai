@@ -28,6 +28,7 @@ class SearchConditions(InputModel):
   visit_at: datetime | None = None
   atmosphere: str | None = Field(default=None, max_length=100)
   purpose: str | None = Field(default=None, max_length=100)
+  radius_metres: int | None = Field(default=None, gt=0, le=20000000)
   clarification: str | None = Field(default=None, max_length=200)
 
 

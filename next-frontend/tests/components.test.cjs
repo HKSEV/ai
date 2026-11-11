@@ -114,7 +114,29 @@ test("profile saves preferences and updates shared nickname", async () => {
   assert.equal(calls[0].url, "/api/me");
 });
 
-test("address form uses private endpoint and validates default flag", async () => {
+test("address form saves a confirmed map point through the private endpoint", async () => {
+  let mapClick;
+  class LatLng {
+    constructor(latitude, longitude) { this.latitude = latitude; this.longitude = longitude; }
+    getLat() { return this.latitude; }
+    getLng() { return this.longitude; }
+  }
+  process.env.KAKAO_JAVASCRIPT_KEY = "map-test";
+  global.ResizeObserver = class { observe() {} disconnect() {} };
+  window.kakao = { maps: {
+    load(callback) { callback(); },
+    LatLng,
+    Map: class { setCenter() {} },
+    Marker: class { setPosition() {} setMap() {} },
+    event: {
+      addListener(_target, type, listener) { if (type === "click") mapClick = listener; },
+      removeListener() {},
+    },
+    services: {
+      Status: { OK: "OK" },
+      Geocoder: class { coord2Address(_x, _y, callback) { callback([{ road_address: { address_name: "서울 노원구 공릉로 1" } }], "OK"); } },
+    },
+  } };
   global.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
     return response(options.method === "POST" ? { id: 3 } : []);
@@ -124,13 +146,19 @@ test("address form uses private endpoint and validates default flag", async () =
   await screen.findByText("출발지를 등록해 보세요.");
   fireEvent.click(screen.getByRole("button", { name: "주소 추가" }));
   fireEvent.change(screen.getByLabelText("주소 이름"), { target: { value: "집" } });
-  fireEvent.change(screen.getByLabelText("주소", { exact: true }), { target: { value: "서울 노원구 공릉로 1" } });
+  assert.equal(screen.getByRole("button", { name: "주소 저장" }).disabled, true);
+  await waitFor(() => assert.equal(typeof mapClick, "function"));
+  await act(async () => mapClick({ latLng: new LatLng(37.65, 127.06) }));
+  assert.equal(screen.getByLabelText("선택한 주소").readOnly, true);
+  assert.equal(screen.getByLabelText("선택한 주소").value, "서울 노원구 공릉로 1");
   fireEvent.click(screen.getByLabelText("기본 출발지로 사용"));
   fireEvent.click(screen.getByRole("button", { name: "주소 저장" }));
   await screen.findByText("주소를 저장했어요.");
   const post = calls.find((call) => call.options.method === "POST");
   assert.equal(post.url, "/api/me/addresses");
-  assert.equal(JSON.parse(post.options.body).is_default, true);
+  assert.deepEqual(JSON.parse(post.options.body), {
+    label: "집", address: "서울 노원구 공릉로 1", latitude: 37.65, longitude: 127.06, is_default: true,
+  });
 });
 
 test("chat ignores composing Enter and prevents duplicate submissions", async () => {
@@ -159,7 +187,7 @@ test("geolocation denial keeps manual origin available", async () => {
   setup(Explore);
   await screen.findByText("오늘의 첫 산책을 시작해 보세요.");
   fireEvent.click(screen.getByRole("button", { name: "현재 위치 사용" }));
-  await screen.findByText(/위치 권한이 없어도 괜찮아요/);
+  await screen.findByText(/현재 위치를 확인하지 못했습니다/);
   fireEvent.change(screen.getByLabelText("출발지 또는 목적지"), { target: { value: "공릉역" } });
   assert.equal(screen.getByLabelText("출발지 또는 목적지").value, "공릉역");
 });

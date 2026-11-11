@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from config.database import Base
@@ -14,6 +14,8 @@ class User(Base):
   __tablename__ = "users"
   id: Mapped[int] = mapped_column(primary_key=True)
   kakao_id: Mapped[str] = mapped_column(String(64), unique=True)
+  email: Mapped[str | None] = mapped_column(String(320))
+  address_setup_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
   nickname: Mapped[str] = mapped_column(String(40))
   nickname_key: Mapped[str] = mapped_column(String(40), unique=True)
   preferences: Mapped[list] = mapped_column(JSON, default=list)

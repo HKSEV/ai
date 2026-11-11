@@ -30,7 +30,7 @@ export default function Home() {
     } catch (error) { toast(errorMessage(error)); setPending(false); }
   };
   return (
-    <div className="landing">
+    <div className="landing page-enter">
       <header className="landing-header"><Link href="/" className="brand"><span className="brand-mark"><LuLeaf /></span><span>노원맛집산책</span></Link><span className="landing-tagline">우리 동네를 맛있게 걷는 방법</span></header>
       <main>
         <section className="landing-hero">

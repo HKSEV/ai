@@ -1,10 +1,21 @@
 export interface User {
   id: number;
   nickname: string;
+  email: string | null;
+  address_setup_pending: boolean;
   preferences: string[];
   budget_min: number | null;
   budget_max: number | null;
   created_at: string;
+}
+
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
+
+export interface MapLocation extends Coordinates {
+  address: string;
 }
 
 export interface Address {
@@ -31,6 +42,8 @@ export interface Conditions {
   visit_at?: string | null;
   atmosphere?: string | null;
   purpose?: string | null;
+  radius_metres?: number | null;
+  search_origin?: (Coordinates & { label: string }) | null;
 }
 
 export interface RestaurantOption {
@@ -43,6 +56,8 @@ export interface RestaurantOption {
 
 export interface Restaurant extends RestaurantOption {
   area: string;
+  latitude: number | null;
+  longitude: number | null;
   phone: string | null;
   tags: string[];
   source: string;

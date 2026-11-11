@@ -1,20 +1,20 @@
 # MySQL 검증 기록
 
-검증일: 2026-11-10 (한국 시간)
+2026년 11월 10일에 검증했습니다.
 
 ## 검증 환경
 
-- MySQL Community Server **8.4.13**의 GitHub Actions 서비스 컨테이너에서 실제 MySQL 연결로 검증했다.
-- 검증용 `nowon_test_food_test` 데이터베이스와 가상 음식점·메뉴·회원 정보를 사용했다.
-- 애플리케이션의 SQLAlchemy 모델로 테이블 12개를 생성했다.
-- FastAPI `TestClient`로 실제 라우터·인증 의존성·서비스·MySQL 저장 계층을 호출했다.
-- 카카오 계정 확인과 Gemini의 구조화 응답은 모의 응답으로 대체했다. 실제 외부 계정 로그인 및 실제 Gemini 호출 성공을 의미하지 않는다.
+- MySQL Community Server **8.4.13**의 GitHub Actions 서비스 컨테이너에서 실제 MySQL 연결로 검증했습니다.
+- 검증용 `nowon_test_food_test` 데이터베이스와 가상 음식점·메뉴·회원 정보를 사용했습니다.
+- 애플리케이션의 SQLAlchemy 모델로 테이블 12개를 생성했습니다.
+- FastAPI `TestClient`로 실제 라우터·인증 의존성·서비스·MySQL 저장 계층을 호출했습니다.
+- 카카오 계정 확인과 Gemini의 구조화 응답은 모의 응답으로 검증했습니다.
 
 ## MySQL 통합 검증
 
-API 회귀 **20개 테스트**와 통합 **36개 확인 항목 통과**. [CI 실행 기록](https://github.com/HKSEV/ai/actions/runs/42814752527)에서 확인할 수 있다. 다음 흐름을 포함한다.
+해당 CI 실행에서는 API 회귀 테스트 **20개**와 통합 확인 항목 **36개**를 통과했습니다. [CI 실행 기록](https://github.com/HKSEV/ai/actions/runs/42814752527)
 
-동일한 시나리오는 `backend/scripts/verify_mysql.py`로 다시 실행할 수 있다. MySQL에 `_test`로 끝나는 전용 데이터베이스를 미리 만들고, 해당 DB의 테이블 초기화를 명시적으로 허용해야 한다.
+동일한 시나리오는 `backend/scripts/verify_mysql.py`로 다시 실행할 수 있습니다. MySQL에 `_test`로 끝나는 전용 데이터베이스를 미리 만들고 `--reset`으로 초기화를 허용하세요.
 
 ```bash
 cd backend
@@ -22,7 +22,7 @@ TEST_DATABASE_URL='mysql+pymysql://사용자:비밀번호@127.0.0.1:3306/nowon_f
   uv run python scripts/verify_mysql.py --reset
 ```
 
-이 명령은 지정한 테스트 DB의 애플리케이션 테이블을 초기화한다. 운영 DB 이름은 받지 않는다.
+이 명령은 지정한 테스트 DB의 애플리케이션 테이블을 초기화합니다.
 
 | 범위 | 확인한 결과 |
 | --- | --- |
@@ -49,10 +49,10 @@ TEST_DATABASE_URL='mysql+pymysql://사용자:비밀번호@127.0.0.1:3306/nowon_f
 
 `backend/tests/test_restaurant_facts.py`의 4개 테스트 통과.
 
-1. 해당 요일의 영업시간이 없으면 `확인 필요`를 반환한다.
-2. 명시된 요일 휴무는 `휴무일`로 안내한다.
-3. 자정을 넘는 영업시간은 다음 날에도 정확하게 계산한다.
-4. `노원역` 검색 결과의 주소에 역명이 없어도 공급자가 반환한 지역 검색 결과를 유지한다.
+1. 해당 요일의 영업시간이 없으면 `확인 필요`를 반환합니다.
+2. 명시된 요일 휴무는 `휴무일`로 안내합니다.
+3. 자정을 넘는 영업시간은 다음 날에도 계산합니다.
+4. `노원역` 검색 결과의 주소에 역명이 없어도 공급자가 반환한 지역 검색 결과를 유지합니다.
 
 ```bash
 cd backend
@@ -61,4 +61,4 @@ uv run python -m unittest discover -s tests -p 'test_restaurant_facts.py' -v
 
 ## 실제 외부 서비스 검증에 필요한 설정
 
-카카오 앱의 REST API 키와 Redirect URI, Gemini API 키와 사용 가능한 모델 ID를 설정한 후 실제 브라우저에서 로그인·추천을 확인해야 한다. 외부 장소 데이터 저장은 사용 권한이 확인된 경우에만 관련 설정을 활성화한다. 영업·대기·결제 통계·외부 리뷰·영수증 검증 제공처의 계약과 실제 데이터는 이번 검증에 포함하지 않았다.
+카카오 앱의 JavaScript 키와 웹 도메인, REST API 키와 Redirect URI, Gemini API 키와 모델 ID를 설정한 후 실제 브라우저에서 지도·로그인·추천을 확인하세요. 외부 장소 데이터는 사용 권한을 확인하고 저장을 활성화하세요.

@@ -1,14 +1,19 @@
 import Link from "next/link";
 import { LuArrowUpRight, LuMapPin, LuUtensils } from "react-icons/lu";
 import type { Restaurant } from "@/app/types/Service";
-import { checkedTime, money } from "@/app/lib/format";
+import { checkedTime, distanceLabel, money } from "@/app/lib/format";
 
-export default function RestaurantCard({ restaurant: item, index }: { restaurant: Restaurant; index: number }) {
+export default function RestaurantCard({ restaurant: item, index, selected, onSelect }: {
+  restaurant: Restaurant;
+  index: number;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   return (
-    <article className="restaurant-card">
-      <div className="restaurant-title"><span className="restaurant-number">{String(index + 1).padStart(2, "0")}</span><div><p className="card-eyebrow">{item.category}{item.is_demo && " · 개발 예시"}</p><h3>{item.name}</h3></div><LuUtensils className="muted" /></div>
+    <article className={"restaurant-card" + (selected ? " is-selected" : "")}>
+      <div className="restaurant-title"><span className="restaurant-number">{String(index + 1).padStart(2, "0")}</span><div><p className="card-eyebrow">{item.category}{item.is_demo && " · 개발 예시"}</p><h3>{onSelect ? <button type="button" className="restaurant-map-select" aria-label={item.name + " 추천 지도에서 보기"} aria-pressed={selected} onClick={onSelect}>{item.name}</button> : item.name}</h3></div><LuUtensils className="muted" /></div>
       <p className="restaurant-address"><LuMapPin />{item.address}</p>
-      {item.distance_metres !== null && <p className="helper">{item.distance_basis} 약 {item.distance_metres >= 1000 ? (item.distance_metres / 1000).toFixed(1) + "km" : item.distance_metres + "m"} · 실제 이동 시간 정보 없음</p>}
+      {item.distance_metres !== null && <p className="helper">{item.distance_basis} 약 {distanceLabel(item.distance_metres)} · 실제 이동 시간 정보 없음</p>}
       <div className="recommendation-reason"><span>이런 점이 어울려요</span><p>{item.reason}</p></div>
       {!!item.confirmed_matches?.length && <div className="tags">{item.confirmed_matches.map((tag, i) => <span key={tag + i}>{tag}</span>)}</div>}
       <div className="restaurant-section"><div className="section-heading"><h4>방문 전 확인</h4><span className="badge">{item.opening.label}</span></div><p className="helper">{item.opening.basis}</p><p className="source">영업 정보: {item.hours_source || "정보 없음"} · {checkedTime(item.hours_checked_at)}</p></div>

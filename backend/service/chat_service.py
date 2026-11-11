@@ -1,5 +1,7 @@
 import json
+import re
 from datetime import datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -12,6 +14,24 @@ from dto.chat import RecommendationResult, SearchConditions
 from entity.models import Address, Conversation, Message, Post, Restaurant, SearchRecord, Visit, utcnow
 from service.common import owned, timestamp
 from service.restaurant_service import find_candidates
+
+
+DISTANCE = r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|㎞|킬로(?:미터)?|m|미터)"
+CURRENT_LOCATION = re.compile(r"(?:내|제|현재|현)\s*위치|(?:내|제)\s*주변")
+
+
+def requested_radius(message):
+  match = (
+    re.search(rf"반경\s*(?:약\s*)?{DISTANCE}", message, re.IGNORECASE)
+    or re.search(rf"(?<![\d.,-]){DISTANCE}\s*(?:이내|안|내(?:\b|에서)|반경|범위)", message, re.IGNORECASE)
+  )
+  if not match:
+    return None
+  value, unit = match.groups()
+  metres = Decimal(value.replace(",", "")) * (1000 if unit.lower() in {"km", "㎞", "킬로", "킬로미터"} else 1)
+  if not 1 <= metres <= 20000000:
+    raise HTTPException(422, "검색 반경은 1m 이상으로 입력해 주세요.")
+  return int(metres)
 
 
 def generate_structured(client, prompt, data, schema):
@@ -68,6 +88,12 @@ def chat(db, user, data):
   conversation = owned(db, Conversation, data.conversation_id, user.id) if data.conversation_id else Conversation(user_id=user.id, title=data.message[:40], conditions={})
   history = db.scalars(select(Message).where(Message.conversation_id == conversation.id).order_by(Message.id.desc()).limit(8)).all() if conversation.id else []
   origin_text, latitude, longitude = data.origin_text, data.latitude, data.longitude
+  previous = dict(conversation.conditions)
+  previous_origin = previous.pop("search_origin", None)
+  radius = requested_radius(data.message)
+  if latitude is None and not origin_text and previous_origin and not CURRENT_LOCATION.search(data.message):
+    origin_text = previous_origin["label"]
+    latitude, longitude = previous_origin["latitude"], previous_origin["longitude"]
   if not origin_text and latitude is None:
     address = db.scalar(select(Address).where(Address.user_id == user.id, Address.is_default.is_(True)))
     if address:
@@ -75,14 +101,24 @@ def chat(db, user, data):
   profile = personal_context(db, user)
   conditions = generate_structured(client, CONDITION_PROMPT, {
     "message": data.message, "history": [{"role": row.role, "content": row.content} for row in reversed(history)],
-    "previous": conversation.conditions, "profile": profile, "origin": origin_text,
+    "previous": previous, "profile": profile, "origin": origin_text,
     "coordinates_provided": latitude is not None, "now": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
   }, SearchConditions).model_dump(mode="json")
+  if radius is not None:
+    conditions["radius_metres"] = radius
+  if conditions.get("area") and CURRENT_LOCATION.fullmatch(conditions["area"]):
+    conditions["area"] = None
+  if conditions.get("cuisine") in {"식당", "음식점", "맛집"}:
+    conditions["cuisine"] = None
   clarification = conditions.pop("clarification", None)
+  if conditions.get("radius_metres") and latitude is not None:
+    clarification = None
   if not conditions.get("area") and not origin_text and latitude is None:
     clarification = "어느 동네나 역 근처에서 식사하고 싶으세요?"
   if conditions.get("budget_total") and not conditions.get("party_size"):
     clarification = "총예산에 맞춰 메뉴를 고를게요. 몇 분이 함께 방문하시나요?"
+  if conditions.get("radius_metres") and latitude is None:
+    clarification = "반경 검색의 기준 위치를 정해 주세요. 현재 위치나 지도에서 선택한 지점을 사용할 수 있어요."
   if not conditions.get("budget_total") and conditions.get("party_size") and user.budget_max:
     conditions["budget_total"] = user.budget_max * conditions["party_size"]
   recommendations, notices = [], []
@@ -111,6 +147,8 @@ def chat(db, user, data):
         reply += "\n\n메뉴 가격이 없는 곳은 예산 충족 여부를 확인할 수 없어요."
   if notices:
     reply += "\n\n" + " ".join(notices)
+  if conditions.get("radius_metres") and latitude is not None:
+    conditions["search_origin"] = {"label": origin_text or "현재 위치", "latitude": latitude, "longitude": longitude}
   conversation.conditions = conditions
   conversation.updated_at = utcnow()
   db.add(conversation)

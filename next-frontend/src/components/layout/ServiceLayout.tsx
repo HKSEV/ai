@@ -38,7 +38,7 @@ export default function ServiceLayout({ children }: { children: React.ReactNode 
         <nav className="desktop-nav" aria-label="주요 메뉴">{nav}</nav>
         <div className="header-account"><Link href="/mypage" className="nickname">{user?.nickname}</Link><button className="icon-button" aria-label="로그아웃" onClick={logout}><LuLogOut /></button></div>
       </header>
-      <main className="service-main">{children}</main>
+      <main key={pathname} className="service-main page-enter">{children}</main>
       <footer className="site-footer"><LuLeaf />우리 동네의 한 끼를, 조금 더 다정하게.<span>노원맛집산책</span></footer>
       <nav className="mobile-nav" aria-label="모바일 주요 메뉴">{nav}</nav>
     </div>

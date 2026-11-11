@@ -37,6 +37,7 @@ def authorize(db):
   db.execute(delete(OAuthState).where(OAuthState.expires_at < utcnow()))
   db.add(OAuthState(state_hash=digest(state), expires_at=utcnow() + timedelta(minutes=10)))
   db.commit()
+  # Kakao presents the app's optional account_email consent on its consent screen.
   query = urlencode({"client_id": settings.kakao_rest_api_key, "redirect_uri": settings.kakao_redirect_uri, "response_type": "code", "state": state})
   return state, "https://kauth.kakao.com/oauth/authorize?" + query
 
@@ -65,21 +66,28 @@ def kakao_identity(code):
       token = response.json()["access_token"]
       profile = client.get("https://kapi.kakao.com/v2/user/me", headers={"Authorization": "Bearer " + token})
       profile.raise_for_status()
-      identity = profile.json()["id"]
+      payload = profile.json()
+      identity = payload["id"]
       if not isinstance(identity, int) or isinstance(identity, bool) or identity <= 0:
         raise ValueError("Invalid Kakao identity")
-      return str(identity)
+      account = payload.get("kakao_account")
+      email = account.get("email") if isinstance(account, dict) else None
+      email = email.strip() if isinstance(email, str) else None
+      return str(identity), email if email and len(email) <= 320 else None
   except (httpx.HTTPError, ValueError, KeyError, TypeError):
     raise HTTPException(502, "카카오 인증을 완료하지 못했습니다. 다시 시도해 주세요.") from None
 
 
-def find_or_create_user(db, kakao_id):
+def find_or_create_user(db, kakao_id, email=None):
   for _ in range(20):
     user = db.scalar(select(User).where(User.kakao_id == kakao_id))
     if user:
+      if user.email != email:
+        user.email = email
+        db.commit()
       return user
     nickname = random_nickname()
-    user = User(kakao_id=kakao_id, nickname=nickname, nickname_key=nickname_key(nickname))
+    user = User(kakao_id=kakao_id, email=email, address_setup_pending=True, nickname=nickname, nickname_key=nickname_key(nickname))
     db.add(user)
     try:
       db.commit()

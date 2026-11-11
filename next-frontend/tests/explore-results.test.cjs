@@ -46,7 +46,7 @@ test.beforeEach(() => {
   requests = [];
   global.fetch = async (url, options = {}) => {
     requests.push({ url, options });
-    const body = url === '/api/chat' ? conversation([message(1)]) : { items: [], total: 0, page: 1, pages: 0 };
+    const body = url === '/api/chat' ? conversation([message(1)]) : url === '/api/me/addresses' ? [] : { items: [], total: 0, page: 1, pages: 0 };
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
 });
@@ -78,7 +78,7 @@ test('denied location permission still permits a typed origin and a chat request
   const store = makeStore();
   mount(store);
   fireEvent.click(screen.getByLabelText('현재 위치 사용'));
-  assert.ok(screen.getByText('위치 권한이 없어도 괜찮아요. 동네·역명·주소를 직접 입력해 주세요.'));
+  await screen.findByText(/현재 위치를 확인하지 못했습니다/);
   fireEvent.change(screen.getByLabelText('출발지 또는 목적지'), { target: { value: '공릉역' } });
   fireEvent.change(screen.getByLabelText('맛집 탐색 요청'), { target: { value: '한식집 찾아줘' } });
   fireEvent.click(screen.getByLabelText('메시지 보내기'));

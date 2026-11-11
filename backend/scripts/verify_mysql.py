@@ -1,4 +1,4 @@
-"""실행 중인 MySQL의 전용 테스트 DB에서 API 저장·권한 흐름을 검증한다."""
+"""실행 중인 MySQL의 전용 테스트 DB에서 API 저장·권한 흐름을 검증합니다."""
 
 import argparse
 import os
@@ -57,22 +57,23 @@ second=TestClient(app,headers=headers)
 check('no credentials cannot start fake login',first.get('/api/auth/kakao/authorize').status_code==503)
 object.__setattr__(settings,'kakao_rest_api_key','qa-only')
 from urllib.parse import urlparse,parse_qs
-def login(client,kakao_id):
+def login(client,kakao_id,destination="/onboarding/address",email=None):
     result=client.get('/api/auth/kakao/authorize')
     state=parse_qs(urlparse(result.json()['authorization_url']).query)['state'][0]
-    with patch.object(auth_service,'kakao_identity',return_value=kakao_id):
+    with patch.object(auth_service,'kakao_identity',return_value=(kakao_id,email)):
         response=client.get('/api/auth/kakao/callback',params={'code':'qa-code','state':state},follow_redirects=False)
-    check('OAuth server session '+kakao_id,response.status_code==303 and response.headers['location'].endswith('/explore'))
+    check('OAuth server session '+kakao_id,response.status_code==303 and response.headers['location'].endswith(destination))
     return client.get('/api/auth/me').json()
-user=login(first,'mysql-qa-1')
-login(second,'mysql-qa-2')
+user=login(first,'mysql-qa-1',email='walk@example.com')
+check('signup email persisted and address setup pending',user['email']=='walk@example.com' and user['address_setup_pending'])
+check('unshared email allows signup',login(second,'mysql-qa-2')['email'] is None)
 body={'nickname':'노원검증곰','preferences':['한식'],'budget_min':5000,'budget_max':15000}
 check('profile writes',first.put('/api/me',json=body).status_code==200)
-check('profile survives session recreation',login(first,'mysql-qa-1')['nickname']=='노원검증곰')
 check('other account retains nickname',second.get('/api/auth/me').json()['nickname']!='노원검증곰')
 check('nickname collision rejected',second.put('/api/me',json=body).status_code==409)
-address=first.post('/api/me/addresses',json={'label':'집','address':'서울 노원구 공릉동 1','is_default':True}).json()
+address=first.post('/api/me/addresses',json={'label':'집','address':'서울 노원구 공릉동 1','latitude':37.65,'longitude':127.06,'is_default':True}).json()
 check('address persisted',first.get('/api/me/addresses').json()[0]['address']=='서울 노원구 공릉동 1')
+check('profile and completed onboarding survive session recreation',login(first,'mysql-qa-1','/explore','walk@example.com')['nickname']=='노원검증곰')
 check('other user cannot read addresses',second.get('/api/me/addresses').json()==[])
 check('other user cannot change address',second.put('/api/me/addresses/'+str(address['id']),json={'label':'집','address':'서울 노원구 상계동 1','is_default':True}).status_code==404)
 with SessionLocal() as db:

@@ -91,7 +91,7 @@ def distance_metres(lat1, lng1, lat2, lng2):
     return None
   a, b = math.radians(lat1), math.radians(lat2)
   delta = math.sin((b - a) / 2) ** 2 + math.cos(a) * math.cos(b) * math.sin(math.radians(lng2 - lng1) / 2) ** 2
-  return round(6371000 * 2 * math.asin(min(1, math.sqrt(delta))))
+  return 6371000 * 2 * math.asin(min(1, math.sqrt(delta)))
 
 
 def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=None):
@@ -104,6 +104,7 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
     map_url, directions = "https://map.kakao.com/link/map/" + target, "https://map.kakao.com/link/to/" + target
   else:
     map_url = directions = "https://map.kakao.com/link/search/" + map_target
+  distance = distance_metres(latitude, longitude, item.latitude, item.longitude)
   return {
     "id": item.id, "name": item.name, "address": item.address, "area": item.area, "category": item.category,
     "phone": item.phone, "latitude": item.latitude, "longitude": item.longitude, "tags": item.tags,
@@ -113,26 +114,30 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
     "opening": opening_status(item, visit_at),
     "menus": [{"id": menu.id, "name": menu.name, "price": menu.price, "servings": menu.servings, "available": menu.available, "source": menu.source, "source_url": menu.source_url, "checked_at": timestamp(menu.checked_at), "is_current": fresh(menu.checked_at)} for menu in menus],
     "menu_combination": menu_combination(menus, conditions.get("party_size") if conditions else None),
-    "distance_metres": distance_metres(latitude, longitude, item.latitude, item.longitude), "distance_basis": "좌표로 계산한 직선거리", "travel_minutes": None,
+    "distance_metres": round(distance) if distance is not None else None, "distance_basis": "좌표로 계산한 직선거리", "travel_minutes": None,
     "map_url": map_url, "directions_url": directions,
     "review_summary": [{"id": row.id, "rating": row.rating, "excerpt": row.content[:180], "created_at": timestamp(row.created_at)} for row in reviews],
     "wait_minutes": None, "estimated_card_spending": None, "repeat_visit_rate": None, "external_visit_verified": None,
   }
 
 
-def query_kakao(query, latitude=None, longitude=None):
+def query_kakao(query, latitude=None, longitude=None, radius_metres=None):
   params = {"query": query, "category_group_code": "CE7" if "카페" in query else "FD6", "size": 15}
+  endpoint = "keyword"
   if latitude is not None and longitude is not None:
-    params.update({"x": longitude, "y": latitude, "radius": 5000, "sort": "distance"})
+    params.update({"x": longitude, "y": latitude, "radius": min(radius_metres or 5000, 20000), "sort": "distance"})
+    if radius_metres and query in {"음식점", "카페"}:
+      endpoint = "category"
+      params.pop("query")
   with httpx.Client(timeout=12) as client:
-    response = client.get("https://dapi.kakao.com/v2/local/search/keyword.json", params=params, headers={"Authorization": "KakaoAK " + settings.kakao_local_key})
+    response = client.get(f"https://dapi.kakao.com/v2/local/search/{endpoint}.json", params=params, headers={"Authorization": "KakaoAK " + settings.kakao_local_key})
     response.raise_for_status()
     return response.json()["documents"]
 
 
-def sync_kakao(db, query, latitude, longitude):
+def sync_kakao(db, query, latitude, longitude, radius_metres=None):
   synced = []
-  for data in query_kakao(query, latitude, longitude):
+  for data in query_kakao(query, latitude, longitude, radius_metres):
     address = data.get("road_address_name") or data.get("address_name") or ""
     if "노원구" not in address or data.get("category_group_code") not in {"FD6", "CE7"}:
       continue
@@ -166,10 +171,17 @@ def sync_kakao(db, query, latitude, longitude):
 def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   notices = []
   matched_ids = set()
-  area = conditions.get("area") or origin_text or "노원구"
+  area = conditions.get("area") or (origin_text if origin_text != "현재 위치" else None) or "노원구"
+  radius_metres = conditions.get("radius_metres")
+  cuisine = conditions.get("cuisine")
   if settings.kakao_local_key and settings.kakao_storage_allowed:
     try:
-      matched_ids = sync_kakao(db, "노원구 " + area + " " + (conditions.get("cuisine") or "음식점"), latitude, longitude)
+      if radius_metres:
+        requested_area = conditions.get("area")
+        query = (requested_area + " " if requested_area and requested_area not in {"노원", "노원구", "서울 노원구"} else "") + (cuisine or "음식점")
+      else:
+        query = "노원구 " + area + " " + (cuisine or "음식점")
+      matched_ids = sync_kakao(db, query, latitude, longitude, radius_metres)
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
       notices.append("외부 음식점 조회가 지연되어 저장된 데이터로 탐색했습니다.")
   else:
@@ -177,15 +189,21 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   query = select(Restaurant)
   if not settings.include_demo:
     query = query.where(Restaurant.is_demo.is_(False))
-  rows = db.scalars(query.order_by(Restaurant.checked_at.desc(), Restaurant.id).limit(200)).all()
+  if radius_metres:
+    query = query.where(Restaurant.latitude.is_not(None), Restaurant.longitude.is_not(None))
+  query = query.order_by(Restaurant.checked_at.desc(), Restaurant.id)
+  rows = db.scalars(query if radius_metres else query.limit(200)).all()
   result = []
   for row in rows:
+    if radius_metres:
+      distance = distance_metres(latitude, longitude, row.latitude, row.longitude)
+      if distance is None or distance > radius_metres:
+        continue
     haystack = row.name + " " + row.address + " " + row.area + " " + row.category + " " + " ".join(row.tags or [])
     if conditions.get("area") and conditions["area"] not in {"노원", "노원구", "서울 노원구"} and conditions["area"] not in haystack and row.id not in matched_ids:
       continue
     candidate = serialize_restaurant(db, row, conditions, latitude, longitude)
     menu_text = " ".join(menu["name"] for menu in candidate["menus"])
-    cuisine = conditions.get("cuisine")
     if cuisine and cuisine not in haystack + " " + menu_text:
       continue
     combo = candidate["menu_combination"]
