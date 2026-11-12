@@ -5,11 +5,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import httpx
-from google.genai import types
+from google.genai.interactions import Interaction
 
 from config.settings import settings
 from service import kakao_navigation
-from service.restaurant_research import merge_research, research_restaurants
+from service.restaurant_research import grounded_facts, merge_research, research_restaurants
 from service.restaurant_service import order_estimate
 
 
@@ -33,7 +33,7 @@ class RestaurantResearchTest(unittest.TestCase):
         ("menu", "다른 지점 떡볶이", "8000", "다른 지점 떡볶이 8,000원"),
         ("menu", "콩국수", "9500", "콩국수 9,000원"),
         ("hours", "fri", "11:00-21:00", "금요일 11:00–21:00"),
-        ("hours", "2026-12-25", "12:00-18:00", "2026년 12월 25일 12:00–18:00"),
+        ("hours", "2026-12-25", "12:00-18:00", "2026년 12월 25일 오후 12시–오후 6시"),
         ("break", "2026-12-25", "14:00-15:00", "2026년 12월 25일 브레이크타임 14:00–15:00"),
         ("last_order", "2026-12-25", "17:30", "2026년 12월 25일 라스트오더 17:30"),
       ]),
@@ -41,38 +41,39 @@ class RestaurantResearchTest(unittest.TestCase):
       branch(1, second_identity, [("menu", "2호점 볶음밥", "10000", "2호점 볶음밥 10,000원")]),
       branch(2, second_identity, [("menu", "2호점 볶음밥", "10000", "2호점 볶음밥 10,000원")]),
     ]
-    text = json.dumps({"branches": branches}, ensure_ascii=False)
-    raw = text.encode("utf-8")
     citations = [
       (first_identity, [0, 1]), (second_identity, [2]), ("온기국수 9,000원", [0]), ("온기국수 10,000원", [1]),
       ("다른 지점 떡볶이 8,000원", [2]), ("콩국수 9,000원", [0]), ("금요일 11:00–21:00", [0]),
-      ("2026년 12월 25일 12:00–18:00", [0]), ("2026년 12월 25일 브레이크타임 14:00–15:00", [0]),
+      ("2026년 12월 25일 오후 12시–오후 6시", [0]), ("2026년 12월 25일 브레이크타임 14:00–15:00", [0]),
       ("2026년 12월 25일 라스트오더 17:30", [0]), ("2호점 볶음밥 10,000원", [2]),
     ]
-    supports = []
+    evidence = "\n".join(quote for quote, _ in citations)
+    text = evidence + "\n```json\n" + json.dumps({"branches": branches}, ensure_ascii=False) + "\n```"
+    raw = text.encode("utf-8")
+    annotations = []
+    urls = ["https://example.com/first", "https://example.com/first-other-source", "https://example.com/second"]
     for quote, indices in citations:
       needle = quote.encode("utf-8")
       start = raw.index(needle)
-      supports.append(types.GroundingSupport(
-        grounding_chunk_indices=indices,
-        segment=types.Segment(part_index=0, start_index=start, end_index=start + len(needle)),
-      ))
-    urls = ["https://example.com/first", "https://example.com/first-other-source", "https://example.com/second"]
-    metadata = types.GroundingMetadata(
-      web_search_queries=["온기식탁 공릉로 영업시간 메뉴"],
-      grounding_supports=supports,
-      grounding_chunks=[types.GroundingChunk(web=types.GroundingChunkWeb(title="확인 자료", uri=url)) for url in urls],
-      search_entry_point=types.SearchEntryPoint(rendered_content='<a href="https://www.google.com/search?q=menu">메뉴 더 찾아보기</a>'),
-    )
-    response = types.GenerateContentResponse(candidates=[types.Candidate(
-      content=types.Content(parts=[types.Part(text=text)]), grounding_metadata=metadata,
-    )])
-    generate = Mock(return_value=response)
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+      annotations.extend({"type": "url_citation", "title": "확인 자료", "url": urls[index],
+                          "start_index": start, "end_index": start + len(needle)} for index in indices)
+    response = Interaction.model_validate({"status": "completed", "steps": [
+      {"type": "google_search_call", "id": "search-1", "arguments": {"queries": ["온기식탁 공릉로 영업시간 메뉴"]}},
+      {"type": "google_search_result", "call_id": "search-1", "result": [
+        {"search_suggestions": '<a href="https://www.google.com/search?q=menu">메뉴 더 찾아보기</a>'},
+      ]},
+      {"type": "model_output", "content": [{"type": "text", "text": text, "annotations": annotations}]},
+    ]})
+    create = Mock(return_value=response)
+    client = SimpleNamespace(interactions=SimpleNamespace(create=create))
     facts, suggestions = research_restaurants(client, [first, second], "2026-12-25")
-    config = generate.call_args.kwargs["config"]
-    self.assertIsNotNone(config.tools[0].google_search)
-    self.assertEqual(json.loads(generate.call_args.kwargs["contents"])["visit_date"], "2026-12-25")
+    request = create.call_args.kwargs
+    self.assertEqual(request["tools"], [{"type": "google_search"}])
+    self.assertNotIn("response_format", request)
+    self.assertFalse(request["store"])
+    self.assertEqual(request["api_version"], "v1beta")
+    self.assertEqual(request["input"][-1]["type"], "user_input")
+    self.assertEqual(json.loads(request["input"][-1]["content"][-1]["text"])["visit_date"], "2026-12-25")
     self.assertEqual(suggestions, [{"label": "메뉴 더 찾아보기", "url": "https://www.google.com/search?q=menu"}])
     self.assertNotIn(("menu", "없는 메뉴"), facts[1])
     self.assertNotIn(("menu", "다른 지점 떡볶이"), facts[1])
@@ -92,8 +93,31 @@ class RestaurantResearchTest(unittest.TestCase):
     exception = first["hours"]["exceptions"]["2026-12-25"]
     self.assertEqual((exception["open"], exception["break_start"], exception["last_order"]), ("12:00", "14:00", "17:30"))
     self.assertTrue(exception["sources"]["hours"][0]["checked_at"])
-    response.candidates[0].grounding_metadata = None
+    response.steps = response.steps[-1:]
     self.assertEqual(research_restaurants(client, [first, second], "2026-12-25"), ({}, []))
+
+  def test_character_offsets_preserve_cited_korean_sentences(self):
+    restaurant = {"id": 1, "name": "온기식탁", "address": "서울 노원구 공릉로 101"}
+    identity = "온기식탁 (서울 노원구 공릉로 101)"
+    hours = "월요일~일요일 영업시간은 오전 9시~24시"
+    source = "https://example.com/first"
+    sentence = identity + "의 " + hours + "입니다."
+    unknown = identity + "의 매일 브레이크타임은 15:00~16:00입니다."
+    data = {"branches": [{"restaurant_id": 1, "identity_quote": identity, "facts": [
+      {"kind": "hours", "key": "daily", "value": "09:00-24:00", "quote": hours},
+      {"kind": "break", "key": "daily", "value": "15:00-16:00", "quote": unknown},
+    ]}]}
+    text = sentence + "\n\n" + unknown + "\n\n```json\n" + json.dumps(data, ensure_ascii=False) + "\n```"
+    response = Interaction.model_validate({"status": "completed", "steps": [
+      {"type": "google_search_call", "id": "search-1", "arguments": {"queries": ["온기식탁 영업시간"]}},
+      {"type": "google_search_result", "call_id": "search-1", "result": [{}]},
+      {"type": "model_output", "content": [{"type": "text", "text": text, "annotations": [
+        {"type": "url_citation", "url": source, "start_index": 0, "end_index": len(sentence)},
+      ]}]},
+    ]})
+    facts, _ = grounded_facts(response, {1: restaurant})
+    self.assertIn(source, facts[1][("hours", "thu")]["09:00-00:00"])
+    self.assertNotIn(("break", "thu"), facts[1])
 
   def test_kakao_directions_uses_lon_lat_and_only_successful_route_duration(self):
     def handler(request):

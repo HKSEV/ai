@@ -283,7 +283,7 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
       continue
     candidate = serialize_restaurant(db, row, conditions, latitude, longitude)
     menu_text = " ".join(menu["name"] for menu in candidate["menus"])
-    if cuisine and cuisine not in haystack + " " + menu_text:
+    if cuisine and row.id not in matched_ids and cuisine not in haystack + " " + menu_text:
       continue
     combo = candidate["menu_combination"]
     evidence = ["area", "category"]

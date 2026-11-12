@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import re
@@ -6,8 +5,6 @@ import unicodedata
 from datetime import date
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
-
-from google.genai import types
 
 from config.gemini import RESEARCH_PROMPT
 from config.settings import settings
@@ -19,10 +16,11 @@ from service.restaurant_service import DAYS
 
 ADDRESS = re.compile(r"([가-힣]+구)\s+([가-힣A-Za-z0-9·]+(?:길|로|동|가))\s*(\d+(?:-\d+)?)(?![\d-])")
 UNIT = re.compile(r"(?:지하\s*)?\d+\s*(?:층|호)")
-CLOCK = re.compile(r"(?<!\d)(\d{1,2}):([0-5]\d)(?!\d)")
+CLOCK = re.compile(r"(?<!\d)(?:(오전|오후)\s*)?(\d{1,2})(?::([0-5]\d)(?!\d)|\s*시(?!간)(?:\s*([0-5]?\d)\s*분|(?!\s*\d+\s*분)))")
 WON = re.compile(r"(?<![\d.,])([0-9]+(?:,[0-9]{3})*)\s*원")
 DATE = re.compile(r"(?<!\d)(\d{4})\s*(?:년|[-./])\s*(\d{1,2})\s*(?:월|[-./])\s*(\d{1,2})(?!\d)")
 DAY_LABELS = dict(zip(DAYS, ["월", "화", "수", "목", "금", "토", "일"]))
+JSON_FENCE = re.compile(r"^```(?:json)?[ \t]*\r?\n(.*?)\r?\n```[ \t]*\Z", re.IGNORECASE | re.MULTILINE | re.DOTALL)
 
 
 def normalized(text):
@@ -42,7 +40,7 @@ def matches_branch(quote, restaurant):
 
 def period_days(key, quote):
   if key == "daily":
-    return DAYS if any(word in quote for word in ("매일", "연중무휴")) else []
+    return DAYS if any(word in quote for word in ("매일", "연중무휴")) or re.search(r"월(?:요일)?\s*[~～–-]\s*일(?:요일)?", quote) else []
   if key == "weekdays":
     return DAYS[:5] if "평일" in quote or re.search(r"월\s*[~～–-]\s*금", quote) else []
   if key == "weekend":
@@ -58,8 +56,16 @@ def period_days(key, quote):
 
 
 def clocks(text):
-  return [f"{int(hour) % 24:02}:{minute}" for hour, minute in CLOCK.findall(text)
-          if int(hour) < 24 or (int(hour) == 24 and minute == "00")]
+  result = []
+  for period, hour, minute, korean_minute in CLOCK.findall(text):
+    hour, minute = int(hour), int(minute or korean_minute or 0)
+    if period:
+      if not 1 <= hour <= 12:
+        continue
+      hour = hour % 12 + 12 * (period == "오후")
+    if hour < 24 or (hour == 24 and minute == 0):
+      result.append(f"{hour % 24:02}:{minute:02}")
+  return result
 
 
 def fact_value(fact):
@@ -96,39 +102,38 @@ def web_url(value):
     return None
 
 
-def cited_spans(candidate, checked_at):
-  metadata = candidate.grounding_metadata
-  parts = candidate.content.parts if candidate.content else []
-  visible = [(index, part.text) for index, part in enumerate(parts or []) if not part.thought and part.text]
+def cited_spans(blocks, checked_at):
   spans = []
-  for support in metadata.grounding_supports or []:
-    segment = support.segment
-    if segment is None:
+  for block in blocks:
+    text = block.text
+    citations = [item for item in block.annotations or [] if item.type == "url_citation"
+                 and item.start_index is not None and item.end_index is not None and 0 <= item.start_index < item.end_index]
+    if not citations:
       continue
-    index = segment.part_index if segment.part_index is not None else (visible[0][0] if visible else -1)
-    part = next((text for position, text in visible if position == index), "")
-    if not part:
-      continue
-    start, end = segment.start_index or 0, segment.end_index
-    raw = part.encode("utf-8")
-    if end is not None and 0 <= start < end <= len(raw):
-      text = raw[start:end].decode("utf-8", errors="ignore")
-    else:
-      text = ""
-    if segment.text and segment.text in part:
-      text = segment.text
-    if not text:
-      continue
-    sources = {}
-    chunks = metadata.grounding_chunks or []
-    for source_index in support.grounding_chunk_indices or []:
-      if not 0 <= source_index < len(chunks):
+    byte_indexes = {0: 0}
+    offset = 0
+    for index, character in enumerate(text, 1):
+      offset += len(character.encode("utf-8"))
+      byte_indexes[offset] = index
+    offsets = {index for item in citations for index in (item.start_index, item.end_index)}
+    boundaries = {0, len(text)}
+    for boundary in re.finditer(r"\n+|[.!?](?=\s|$)", text):
+      boundaries.update(boundary.span())
+    # Some Interactions responses use character offsets for the cited sentences.
+    character_offsets = max(offsets) <= len(text) and (
+      not offsets <= byte_indexes.keys()
+      or (offsets <= boundaries and any(byte_indexes[index] not in boundaries for index in offsets))
+    )
+    for annotation in citations:
+      if not annotation.url or not (url := web_url(annotation.url)):
         continue
-      web = chunks[source_index].web
-      if web and web.uri and (url := web_url(web.uri)):
-        sources[web.uri] = {"name": web.title or url.hostname, "url": web.uri, "checked_at": checked_at}
-    if sources:
-      spans.append((text, sources))
+      start, end = annotation.start_index, annotation.end_index
+      if not character_offsets:
+        start, end = byte_indexes.get(start), byte_indexes.get(end)
+      if start is None or end is None:
+        continue
+      source = {"name": annotation.title or url.hostname, "url": annotation.url, "checked_at": checked_at}
+      spans.append((text[start:end], {annotation.url: source}))
   return spans
 
 
@@ -163,49 +168,42 @@ class SuggestionLinks(HTMLParser):
       self.href = None
 
 
-def search_suggestions(metadata):
-  entry = metadata.search_entry_point
-  if entry is None:
-    return []
-  links = []
-  if entry.sdk_blob:
-    try:
-      value = json.loads(base64.b64decode(entry.sdk_blob))
-      if isinstance(value, list):
-        links = value
-    except (TypeError, ValueError):
-      pass
-  if not links and entry.rendered_content:
-    parser = SuggestionLinks()
-    parser.feed(entry.rendered_content)
-    links = parser.links
+def search_suggestions(searches):
+  parser = SuggestionLinks()
+  for search in searches:
+    for item in search.result or []:
+      if item.search_suggestions:
+        parser.feed(item.search_suggestions)
   result = []
-  for link in links:
-    if not isinstance(link, (list, tuple)) or len(link) != 2:
-      continue
-    label, href = link
-    if isinstance(label, str) and label and isinstance(href, str) and (url := web_url(href)) and url.scheme == "https" and url.hostname in {"www.google.com", "google.com", "www.google.co.kr"} and url.path == "/search":
+  for label, href in dict.fromkeys(parser.links):
+    if label and (url := web_url(href)) and url.scheme == "https" and url.hostname in {"www.google.com", "google.com", "www.google.co.kr"} and url.path == "/search":
       result.append({"label": label, "url": href})
   return result[:5]
 
 
 def grounded_facts(response, restaurants):
-  if not response.candidates or not response.candidates[0].grounding_metadata:
+  steps = response.steps or []
+  calls = {step.id for step in steps if step.type == "google_search_call"}
+  searches = [step for step in steps if step.type == "google_search_result" and step.call_id in calls and not step.is_error]
+  output = next((step for step in reversed(steps) if step.type == "model_output"), None)
+  if response.status != "completed" or not searches or output is None:
     return {}, []
-  candidate = response.candidates[0]
-  metadata = candidate.grounding_metadata
-  if not metadata.web_search_queries:
-    return {}, []
-  spans = cited_spans(candidate, timestamp(utcnow()))
+  blocks = [block for block in output.content or [] if block.type == "text" and block.text]
+  spans = cited_spans(blocks, timestamp(utcnow()))
   if not spans:
     return {}, []
-  result = RestaurantResearch.model_validate_json(response.text)
+  text = "".join(block.text for block in blocks).strip()
+  fenced = JSON_FENCE.search(text)
+  result = RestaurantResearch.model_validate_json(fenced[1] if fenced else text)
   facts = {}
   for branch in result.branches:
     restaurant = restaurants.get(branch.restaurant_id)
     if not restaurant or not matches_branch(branch.identity_quote, restaurant):
       continue
     identity_sources = quote_sources(spans, branch.identity_quote)
+    for span, sources in spans:
+      if matches_branch(span, restaurant):
+        identity_sources.update(sources)
     for fact in branch.facts:
       sources = {uri: link for uri, link in quote_sources(spans, fact.quote).items() if uri in identity_sources}
       if not sources:
@@ -213,28 +211,31 @@ def grounded_facts(response, restaurants):
       for key, value in fact_value(fact):
         item = facts.setdefault(branch.restaurant_id, {}).setdefault((fact.kind, key), {})
         item.setdefault(value, {}).update(sources)
-  return facts, search_suggestions(metadata) if facts else []
+  return facts, search_suggestions(searches) if facts else []
 
 
 def research_restaurants(client, restaurants, visit_date):
   by_id = {item["id"]: item for item in restaurants if not item["is_demo"]}
   if not by_id:
     return {}, []
+  request = json.dumps({"restaurants": [
+    {"id": item["id"], "name": item["name"], "address": item["address"]} for item in by_id.values()
+  ], "visit_date": visit_date}, ensure_ascii=False, separators=(",", ":"))
   try:
-    response = client.models.generate_content(
-      model=settings.gemini_model,
-      contents=json.dumps({"restaurants": [
-        {"id": item["id"], "name": item["name"], "address": item["address"]} for item in by_id.values()
-      ], "visit_date": visit_date}, ensure_ascii=False),
-      config=types.GenerateContentConfig(
-        system_instruction=RESEARCH_PROMPT, tools=[types.Tool(google_search=types.GoogleSearch())],
-        response_mime_type="application/json", response_json_schema=RestaurantResearch.model_json_schema(),
-        temperature=0.1, max_output_tokens=8192, http_options=types.HttpOptions(timeout=35000),
-      ),
+    response = client.interactions.create(
+      api_version="v1beta", model=settings.gemini_model,
+      input=[{"type": "user_input", "content": [
+        {"type": "text", "text": "Google에서 다음 매장의 현재 영업 일정과 메뉴를 검색하고 출처를 확인하세요."},
+        {"type": "text", "text": request},
+      ]}],
+      system_instruction=RESEARCH_PROMPT, tools=[{"type": "google_search"}],
+      generation_config={"temperature": 0.1, "max_output_tokens": 8192},
+      store=False, timeout=35, automatic_continuation=False,
     )
     return grounded_facts(response, by_id)
   except Exception as error:
-    logging.getLogger(__name__).warning("Restaurant research unavailable: %s", type(error).__name__)
+    status = getattr(error, "code", getattr(error, "status_code", None))
+    logging.getLogger(__name__).warning("Restaurant research unavailable: %s (status=%s)", type(error).__name__, status)
     return {}, []
 
 

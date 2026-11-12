@@ -84,6 +84,28 @@ class RestaurantFactsTest(unittest.TestCase):
       self.assertGreater(candidates[0]["distance_metres"], 5000)
     engine.dispose()
 
+  def test_provider_cuisine_match_survives_a_different_category_label(self):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+      user = User(id=1, preferences=[])
+      db.add(Restaurant(name="분식집", address="서울 노원구 노해로 1", area="노원역", category="분식", source="검증"))
+      data = [{
+        "id": "qa-burger", "place_name": "검증용 버거킹 노원역점", "category_group_code": "FD6",
+        "category_name": "음식점 > 패스트푸드 > 버거킹", "road_address_name": "서울 노원구 노해로 456",
+        "address_name": "서울 노원구 상계동 734-5", "x": "127.061", "y": "37.655",
+      }]
+      configured = replace(service.settings, kakao_local_key="test-only", kakao_storage_allowed=True)
+      conditions = {"area": "노원역", "cuisine": "햄버거"}
+      with patch.object(service, "settings", configured), patch.object(service, "query_kakao", return_value=data) as lookup:
+        candidates, _ = service.find_candidates(db, user, conditions, None, None, None)
+      lookup.assert_called_once_with("노원구 노원역 햄버거", None, None, None)
+      self.assertEqual([item["name"] for item in candidates], ["검증용 버거킹 노원역점"])
+      with patch.object(service, "settings", replace(configured, kakao_local_key="")):
+        candidates, _ = service.find_candidates(db, user, conditions, None, None, None)
+      self.assertEqual(candidates, [])
+    engine.dispose()
+
 
 if __name__ == "__main__":
   unittest.main()

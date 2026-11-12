@@ -101,7 +101,7 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 | 백엔드 | `KAKAO_PLACE_STORAGE_ALLOWED` | 저장·재이용 권한 확인 후 true. 기본 false |
 | 백엔드 | `KAKAO_MOBILITY_REST_API_KEY` | 자동차 길찾기 API 이용 권한을 부여받은 앱의 REST API 키 |
 | 백엔드 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google GenAI 인증 및 사용 가능한 구조화 출력 지원 모델 ID |
-| 백엔드 | `GEMINI_SEARCH_ENABLED` | Google 검색과 구조화 출력을 함께 지원하는 Gemini 3 모델 및 결제 연결 프로젝트에서 true. 기본 false |
+| 백엔드 | `GEMINI_SEARCH_ENABLED` | Google 검색을 지원하는 모델 및 결제 연결 프로젝트에서 true. 기본 false |
 | 백엔드 | `SESSION_DAYS`, `COOKIE_SECURE` | 기본 14일, HTTPS 운영 시 COOKIE_SECURE=true |
 | 백엔드 | `INCLUDE_DEMO_DATA` | 개발 예시 노출 여부. 기본 false |
 | 백엔드 | `DATA_MAX_AGE_DAYS` | 메뉴·영업시간 신뢰 기한. 기본 30일 |
@@ -118,7 +118,7 @@ Gemini API 키에서 사용할 수 있는 모델 ID를 설정하세요. 카카�
 - 카카오 로컬 음식점 검색과 저장을 사용할 때는 `KAKAO_LOCAL_REST_API_KEY`와 `KAKAO_PLACE_STORAGE_ALLOWED=true`를 설정하세요. `/api/status`에서 `kakao_local_configured`를 확인할 수 있습니다.
 - [카카오모빌리티 길찾기](https://developers.kakaomobility.com/guide/navi-api/directions) 사용 권한을 확인하고 `KAKAO_MOBILITY_REST_API_KEY`를 설정하세요. 지정한 출발지 또는 기본 주소에서 음식점까지 자동차 예상 소요 시간을 조회합니다. `/api/status`에서 `kakao_mobility_configured`를 확인할 수 있습니다.
 
-[Gemini Google 검색](https://ai.google.dev/gemini-api/docs/google-search)을 사용하려면 결제를 연결한 프로젝트의 키와 검색·구조화 출력 지원 모델을 설정한 뒤 `GEMINI_SEARCH_ENABLED=true`를 지정하세요. 환경변수 변경 후 백엔드를 재시작하세요. 이번 연동에 필요한 DB 마이그레이션은 없습니다.
+[Gemini Google 검색](https://ai.google.dev/gemini-api/docs/google-search)을 사용하려면 결제를 연결한 프로젝트의 키와 Google 검색 지원 모델을 설정한 뒤 `GEMINI_SEARCH_ENABLED=true`를 지정하세요. Interactions API가 반환하는 검색 단계와 출처를 확인하고 JSON 형식은 백엔드에서 검증합니다. 의존성은 `uv sync`로 맞춘 뒤 백엔드를 재시작하세요. 이번 연동에 필요한 DB 마이그레이션은 없습니다.
 
 카카오 access token은 서버가 계정 정보를 조회하는 데 사용합니다. 로그아웃은 이 서비스의 세션을 종료합니다. 현재 위치를 조회할 때 브라우저 위치 권한을 사용하며, 배포 환경에서는 HTTPS가 필요합니다.
 
