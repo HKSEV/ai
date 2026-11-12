@@ -94,6 +94,16 @@ test('the recommendation panel returns to the top when the next answer arrives',
   assert.equal(panel.scrollTop, 0);
 });
 
+test('estimated hours appear in the chat and card beside the registered opening status', async () => {
+  const store = makeStore();
+  const item = { ...restaurant, is_demo: false, estimated_hours: '11:00–21:30' };
+  const label = 'AI 추정 영업시간 11:00–21:30 · 방문 전 확인';
+  store.dispatch(setConversation(conversation([{ ...message(1, [item]), content: '- ' + label }])));
+  await act(async () => { mount(store); });
+  assert.equal(screen.getAllByText(label).length, 2);
+  assert.equal(screen.getByText('확인 필요').className, 'badge');
+});
+
 test('the current user review mark is refreshed independently of saved recommendations', async () => {
   let reviewed = [];
   const fallback = global.fetch;

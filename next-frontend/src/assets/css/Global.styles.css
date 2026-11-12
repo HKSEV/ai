@@ -222,8 +222,6 @@ label { display: flex; flex-direction: column; gap: .5rem; font-size: .875rem; f
 .message-bubble h3 { margin: .85rem 0 .25rem; font-size: .85rem; color: var(--green-dark); }
 .message-bubble ul, .message-bubble ol { padding-left: 1.4rem; }
 .message-bubble a { text-decoration: underline; color: var(--green); }
-.search-suggestions { display: flex; flex-wrap: wrap; gap: .3rem .6rem; margin-top: .8rem; padding-top: .55rem; border-top: 1px solid var(--line); font-size: .7rem; }
-.search-suggestions small { width: 100%; color: var(--muted); }
 .user .message-bubble { border-radius: .9rem 0 .9rem .9rem; background: #e7ede1; color: var(--green-dark); }
 .thinking { display: flex; gap: .25rem; align-items: center; flex-wrap: wrap; }
 .thinking > span { width: 4px; height: 4px; border-radius: 50%; background: var(--green); animation: pulse 1.2s ease-in-out infinite alternate; }
@@ -282,10 +280,6 @@ label { display: flex; flex-direction: column; gap: .5rem; font-size: .875rem; f
 .restaurant-hours dl > div { display: grid; grid-template-columns: minmax(1.15rem, auto) 1fr; gap: .5rem; padding: .2rem 0; }
 .restaurant-hours dd { margin: 0; min-width: 0; }
 .visit-schedule { margin-top: .35rem; }
-.hours-fact, .fact-sources { display: block; }
-.hours-fact { margin-top: .25rem; font-size: .65rem; }
-.fact-sources > span { display: block; color: var(--muted); font-size: .65rem; line-height: 1.6; }
-.fact-sources a { color: var(--green); text-decoration: underline; text-underline-offset: .15em; }
 .source { margin-top: .7rem; color: #8d9388; font-size: .6rem; overflow-wrap: anywhere; }
 .source a, .menu-source a { text-decoration: underline; text-underline-offset: 3px; }
 .menu-list { padding: 0; margin: 0; list-style: none; }

@@ -101,7 +101,6 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 | 백엔드 | `KAKAO_PLACE_STORAGE_ALLOWED` | 저장·재이용 권한 확인 후 true. 기본 false |
 | 백엔드 | `KAKAO_MOBILITY_REST_API_KEY` | 자동차 길찾기 API 이용 권한을 부여받은 앱의 REST API 키 |
 | 백엔드 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google GenAI 인증 및 사용 가능한 구조화 출력 지원 모델 ID |
-| 백엔드 | `GEMINI_SEARCH_ENABLED` | Google 검색을 지원하는 모델 및 결제 연결 프로젝트에서 true. 기본 false |
 | 백엔드 | `SESSION_DAYS`, `COOKIE_SECURE` | 기본 14일, HTTPS 운영 시 COOKIE_SECURE=true |
 | 백엔드 | `INCLUDE_DEMO_DATA` | 개발 예시 노출 여부. 기본 false |
 | 백엔드 | `DATA_MAX_AGE_DAYS` | 메뉴·영업시간 신뢰 기한. 기본 30일 |
@@ -117,8 +116,6 @@ Gemini API 키에서 사용할 수 있는 모델 ID를 설정하세요. 카카�
 - 카카오 로그인을 활성화하고 `KAKAO_REDIRECT_URI`와 일치하는 Redirect URI를 등록하세요. 동의항목에서 **카카오계정(이메일)**을 **선택 동의**로 설정하세요. 카카오가 이메일을 제공하지 않으면 `미제공`으로 표시합니다.
 - 카카오 로컬 음식점 검색과 저장을 사용할 때는 `KAKAO_LOCAL_REST_API_KEY`와 `KAKAO_PLACE_STORAGE_ALLOWED=true`를 설정하세요. `/api/status`에서 `kakao_local_configured`를 확인할 수 있습니다.
 - [카카오모빌리티 길찾기](https://developers.kakaomobility.com/guide/navi-api/directions) 사용 권한을 확인하고 `KAKAO_MOBILITY_REST_API_KEY`를 설정하세요. 지정한 출발지 또는 기본 주소에서 음식점까지 자동차 예상 소요 시간을 조회합니다. `/api/status`에서 `kakao_mobility_configured`를 확인할 수 있습니다.
-
-[Gemini Google 검색](https://ai.google.dev/gemini-api/docs/google-search)을 사용하려면 결제를 연결한 프로젝트의 키와 Google 검색 지원 모델을 설정한 뒤 `GEMINI_SEARCH_ENABLED=true`를 지정하세요. Interactions API가 반환하는 검색 단계와 출처를 확인하고 JSON 형식은 백엔드에서 검증합니다. 의존성은 `uv sync`로 맞춘 뒤 백엔드를 재시작하세요. 이번 연동에 필요한 DB 마이그레이션은 없습니다.
 
 카카오 access token은 서버가 계정 정보를 조회하는 데 사용합니다. 로그아웃은 이 서비스의 세션을 종료합니다. 현재 위치를 조회할 때 브라우저 위치 권한을 사용하며, 배포 환경에서는 HTTPS가 필요합니다.
 
@@ -140,12 +137,12 @@ uv run python -m scripts.import_restaurants data/restaurants.example.json --demo
 ```
 
 - 카카오 로컬 검색은 노원구 음식점·카페의 이름·주소·분류·좌표·상세 페이지 링크와 제공된 전화번호를 조회합니다. 요일별 영업시간, 공휴일·임시 휴무, 가격은 카카오 로컬 응답에 포함되지 않습니다. [카카오 로컬 응답 필드](https://developers.kakao.com/docs/ko/local/dev-guide#search-by-keyword-response-body)
-- 웹 검색을 활성화하면 상위 후보를 조사합니다. 매장명과 도로명 주소가 일치하는 출처에서 요일별 일정, 날짜별 예외, 브레이크타임, 라스트오더, 메뉴와 가격을 항목별로 대조합니다. 검색 근거가 없거나 확인된 출처가 서로 다르면 해당 항목은 `확인 필요`로 표시합니다. 조사 결과, 출처와 이동 시간은 이번 탐색 응답에 표시합니다. 저장된 대화를 다시 열면 DB에 등록된 음식점 자료와 추천 내용을 보여 줍니다.
+- Gemini는 후보 식당과 요청 조건을 보고 식당별 추천 이유를 작성합니다. 등록된 일정이 없으면 지점이나 업종의 일반적인 운영 시간대를 추정해 채팅과 카드에 `AI 추정 영업시간`으로 표시합니다. 방문 시각의 영업 여부는 등록된 요일별·날짜별 일정으로 판단합니다. 추천 이유와 추정 시간은 대화에 저장하고 이동 시간은 이번 탐색 응답에 표시합니다.
 - 영업시간은 [매장 공식 안내](https://www.shinsegaefood.com/nobrandburger/index.sf?category1Seq=1&goodId=140)나 [한국관광공사 공개 데이터](https://www.data.go.kr/data/15101578/openapi.do)에서 해당 식당과 일정의 적용 범위 및 이용 조건을 확인한 뒤 등록하세요. 확인된 요일·날짜만 입력하세요.
 - 확인한 단가와 주문 수량으로 예상 총액을 계산합니다. 인원이 있으면 1인당 금액도 표시합니다. 제공 인원을 확인한 메뉴나 세트를 조합하고, 제공 인원이 없는 메뉴에는 1인당 1개를 주문하는 예시를 표시합니다.
 - 위치 좌표가 있을 때 직선거리를 계산하여 명시합니다. 반경 검색은 기준 위치와 음식점 좌표 사이의 직선거리로 필터링합니다. 위치 권한을 거부하면 저장한 좌표를 사용하거나 지도에서 기준점을 선택할 수 있습니다. 반경 검색의 기준점은 후속 탐색에 사용할 수 있도록 해당 대화의 조건과 함께 보관합니다.
 - 외부 리뷰·실시간 영업·대기·결제 추정액·재방문율·외부 방문 인증·영수증 검증은 제공처 미연동 상태입니다. 해당 지표는 null/정보 없음으로 유지하고 `service/provider_contracts.py`에 교체 가능한 인터페이스를 두었습니다.
-- 조건 추출에는 입력 대화, 출발지, 취향·예산, 최근 검색과 방문·리뷰의 음식 분류를 사용합니다. 추천에는 확인된 후보 정보와 근거 문장을 사용합니다. 운영 시 개인정보 처리 안내와 제공처의 보관 조건을 적용하십시오.
+- 조건 추출에는 입력 대화, 출발지, 취향·예산, 최근 검색과 방문·리뷰의 음식 분류를 사용합니다. 운영 시 개인정보 처리 안내와 제공처의 보관 조건을 적용하십시오.
 
 ### 이미 등록된 음식점의 영업 일정 갱신
 

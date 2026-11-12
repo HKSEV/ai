@@ -36,7 +36,6 @@ class Settings:
   kakao_mobility_key: str = os.getenv("KAKAO_MOBILITY_REST_API_KEY", "")
   gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
   gemini_model: str = os.getenv("GEMINI_MODEL", "")
-  gemini_search_enabled: bool = os.getenv("GEMINI_SEARCH_ENABLED", "false").lower() == "true"
   session_days: int = int(os.getenv("SESSION_DAYS", "14"))
   cookie_secure: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
   include_demo: bool = os.getenv("INCLUDE_DEMO_DATA", "false").lower() == "true"

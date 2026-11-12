@@ -31,18 +31,15 @@ def hours_for_date(hours, closed_dates, day):
   return hours.get(DAYS[day.weekday()]), False
 
 
-def opening_status(restaurant, visit_at=None):
-  if not restaurant.hours_source or not fresh(restaurant.hours_checked_at):
-    return {"label": "확인 필요", "basis": "영업시간 정보가 없거나 확인 기한이 지났습니다.", "is_realtime": False}
-  return schedule_status(restaurant.hours or {}, restaurant.closed_dates or [], visit_at)
-
-
 def visit_time(visit_at):
   moment = visit_at or datetime.now(KST)
   return moment.replace(tzinfo=KST) if moment.tzinfo is None else moment.astimezone(KST)
 
 
-def schedule_status(hours, closed_dates, visit_at=None):
+def opening_status(restaurant, visit_at=None):
+  if not restaurant.hours_source or not fresh(restaurant.hours_checked_at):
+    return {"label": "확인 필요", "basis": "영업시간 정보가 없거나 확인 기한이 지났습니다.", "is_realtime": False}
+  hours, closed_dates = restaurant.hours or {}, restaurant.closed_dates or []
   moment = visit_time(visit_at)
   today, date_override = hours_for_date(hours, closed_dates, moment.date())
   if today and "hours" in today.get("conflicts", []):
@@ -157,7 +154,7 @@ def visit_schedule(hours, closed_dates, visit_at):
         details.append(label + " 확인 필요")
   return {
     "date": day.isoformat(), "basis": "날짜별" if exception else "요일별",
-    "summary": " · ".join(details), "sources": period.get("sources", {}),
+    "summary": " · ".join(details),
   }
 
 

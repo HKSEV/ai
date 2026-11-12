@@ -1,26 +1,22 @@
 import Link from "next/link";
 import { LuArrowUpRight, LuCheck, LuMapPin, LuPhone, LuUtensils } from "react-icons/lu";
-import type { FactSource, OpeningPeriod, Restaurant, Weekday } from "@/app/types/Service";
+import type { OpeningPeriod, Restaurant, Weekday } from "@/app/types/Service";
 import { checkedTime, distanceLabel, money } from "@/app/lib/format";
 
 const weekdays: [Weekday, string][] = [["mon", "월"], ["tue", "화"], ["wed", "수"], ["thu", "목"], ["fri", "금"], ["sat", "토"], ["sun", "일"]];
-const hourLabels: Record<string, string> = { hours: "영업시간", break: "브레이크타임", last_order: "라스트오더" };
+const hourLabels: Record<string, string> = { break: "브레이크타임", last_order: "라스트오더" };
 
 function periodLabel(period?: OpeningPeriod) {
   if (period?.closed) return "휴무";
   const details = [period?.open && period.close ? period.open + "–" + (period.close <= period.open ? "다음 날 " : "") + period.close : "확인 필요"];
   if (period?.break_start && period.break_end) details.push("브레이크타임 " + period.break_start + "–" + period.break_end);
   if (period?.last_order) details.push("라스트오더 " + period.last_order);
-  for (const field of period?.conflicts || []) if (field !== "hours") details.push(hourLabels[field] + " 확인 필요");
+  for (const field of period?.conflicts || []) if (hourLabels[field]) details.push(hourLabels[field] + " 확인 필요");
   return details.join(" · ");
 }
 
-function FactSources({ sources }: { sources: FactSource[] }) {
-  return <span className="fact-sources">{sources.map((source, index) => <span key={index}>{source.url ? <a href={source.url} target="_blank" rel="noreferrer">{source.name}</a> : source.name} · {checkedTime(source.checked_at)}</span>)}</span>;
-}
-
 function HoursRow({ label, period }: { label: string; period?: OpeningPeriod }) {
-  return <div><dt>{label}</dt><dd>{periodLabel(period)}{Object.entries(period?.sources || {}).map(([kind, sources]) => <span className="hours-fact" key={kind}>{hourLabels[kind]} 출처 <FactSources sources={sources} /></span>)}</dd></div>;
+  return <div><dt>{label}</dt><dd>{periodLabel(period)}</dd></div>;
 }
 
 function RestaurantHours({ restaurant: item }: { restaurant: Restaurant }) {
@@ -62,6 +58,7 @@ export default function RestaurantCard({ restaurant: item, index, reviewed, sele
         <div className="section-heading"><h4>방문 전 확인</h4><span className="badge">{item.opening.label}</span></div>
         <p className="helper">{item.opening.basis}</p>
         {item.visit_schedule && <p className="helper visit-schedule">{item.visit_schedule.date} {item.visit_schedule.basis} 일정 · {item.visit_schedule.summary}</p>}
+        {item.estimated_hours && <p className="helper visit-schedule">AI 추정 영업시간 {item.estimated_hours} · 방문 전 확인</p>}
         <p className="restaurant-phone"><LuPhone aria-hidden />전화번호 {dial && /^\+?\d+$/.test(dial) ? <a href={"tel:" + dial}>{phone}</a> : <span>{phone || "정보 없음"}</span>}</p>
         <RestaurantHours restaurant={item} />
         {item.hours_source && <p className="source">등록된 영업 정보 {item.hours_source_url ? <a href={item.hours_source_url} target="_blank" rel="noreferrer">{item.hours_source}</a> : item.hours_source}{item.hours_checked_at && " · " + checkedTime(item.hours_checked_at)}</p>}
@@ -72,7 +69,7 @@ export default function RestaurantCard({ restaurant: item, index, reviewed, sele
           <div className="menu-total"><span>{item.menu_combination.party_size ? item.menu_combination.party_size + "명 " : ""}예상 총액<strong>{money(item.menu_combination.total)}</strong></span>{item.menu_combination.per_person != null && <span>1인당<strong>{money(item.menu_combination.per_person)}</strong></span>}</div>
           <p className="helper">{item.menu_combination.basis}</p>
         </> : <p className="helper">{item.recommended_menu ? item.recommended_menu + " · " : "추천 메뉴 확인 필요 · "}{item.budget_note || "예상 금액 확인 필요"}</p>}
-        {item.menus.length > 0 && <details className="menu-details"><summary>확인한 메뉴 및 출처 {item.menus.length}개</summary>{item.menus.map((menu) => <div className="menu-source" key={menu.id}><p>{menu.name} · {menu.price === null || !menu.is_current ? "가격 확인 필요" : money(menu.price)}{menu.price_conflict && " · 출처 불일치"}</p><FactSources sources={menu.sources || [{ name: menu.source, url: menu.source_url, checked_at: menu.checked_at }]} /></div>)}</details>}
+        {item.menus.length > 0 && <details className="menu-details"><summary>확인한 메뉴 및 출처 {item.menus.length}개</summary>{item.menus.map((menu) => <div className="menu-source" key={menu.id}><p>{menu.name} · {menu.price === null || !menu.is_current ? "가격 확인 필요" : money(menu.price)}</p><small>{menu.source_url ? <a href={menu.source_url} target="_blank" rel="noreferrer">{menu.source}</a> : menu.source} · {checkedTime(menu.checked_at)}</small></div>)}</details>}
       </div>
       {item.review_summary.length > 0 && <div className="restaurant-section"><h4>이웃 리뷰에서</h4>{item.review_summary.slice(0, 2).map((review) => <Link href={"/community/" + review.id} className="review-excerpt" key={review.id}><span>★ {review.rating} · {checkedTime(review.created_at)}</span><p>{review.excerpt}</p></Link>)}</div>}
       <div className="restaurant-links"><a className="button secondary small" href={item.map_url} target="_blank" rel="noreferrer">지도 보기<LuArrowUpRight /></a><a className="button primary small" href={item.directions_url} target="_blank" rel="noreferrer">길찾기<LuArrowUpRight /></a></div>

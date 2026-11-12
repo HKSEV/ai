@@ -55,7 +55,6 @@ def status():
     "database_configured": bool(settings.database_url),
     "kakao_login_configured": bool(settings.kakao_rest_api_key),
     "gemini_configured": bool(settings.gemini_api_key and settings.gemini_model),
-    "gemini_search_enabled": bool(settings.gemini_api_key and settings.gemini_model and settings.gemini_search_enabled),
     "kakao_local_configured": bool(settings.kakao_local_key and settings.kakao_storage_allowed),
     "kakao_mobility_configured": bool(settings.kakao_mobility_key),
     "realtime_hours": False, "waiting": False, "payment_statistics": False,
