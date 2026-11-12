@@ -21,6 +21,7 @@ import RestaurantMap from "./RestaurantMap";
 const suggestions = ["노원역 근처 조용한 데이트 식당", "상계동에서 혼밥하기 좋은 찌개집", "공릉동에서 4명이 6만 원 안으로 먹을 곳"];
 const radiusRequest = /반경\s*(?:약\s*)?\d|\d\s*(?:km|㎞|킬로(?:미터)?|m|미터)\s*(?:이내|안|내|범위|반경)/i;
 const currentLocationRequest = /(?:내|제|현재|현)\s*위치|(?:내|제)\s*주변/;
+type SearchLocation = MapLocation & { isDefault?: boolean };
 
 function currentPosition() {
   return new Promise<MapLocation>((resolve, reject) => {
@@ -37,7 +38,7 @@ async function savedPosition() {
   const addresses = await api<Address[]>("/api/me/addresses").catch(() => []);
   if (!Array.isArray(addresses)) return null;
   const address = addresses.find((item) => item.is_default && hasCoordinates(item)) || addresses.find(hasCoordinates);
-  return address && hasCoordinates(address) ? { address: address.address, latitude: address.latitude, longitude: address.longitude } : null;
+  return address && hasCoordinates(address) ? { address: address.address, latitude: address.latitude, longitude: address.longitude, isDefault: address.is_default } : null;
 }
 
 export default function Explore() {
@@ -78,7 +79,11 @@ export default function Explore() {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [answerId, reloadReviewed]);
-  const setSearchPosition = (position: MapLocation) => {
+  const setSearchPosition = (position: SearchLocation) => {
+    if (position.isDefault) {
+      setOrigin(""); setCoordinates(null);
+      return;
+    }
     setOrigin(position.address); setCoordinates({ latitude: position.latitude, longitude: position.longitude });
   };
   const locateWithFallback = async () => {
@@ -92,14 +97,14 @@ export default function Explore() {
       return position;
     }
   };
-  const send = async (value = input, chosen?: MapLocation) => {
+  const send = async (value = input, chosen?: SearchLocation) => {
     const message = value.trim();
     if (!message || locked.current || pending) return;
     locked.current = true; setError("");
     try {
       const radius = radiusRequest.test(message);
       const wantsCurrent = currentLocationRequest.test(message) && (radius || !!active?.conditions.radius_metres);
-      const needsPoint = radius && !coordinates && (!!origin || !active?.conditions.search_origin);
+      const needsPoint = radius && !coordinates && !origin.trim() && !active?.conditions.search_origin;
       let position = chosen;
       if (!position && (wantsCurrent || needsPoint)) {
         setLocating(true);
@@ -109,8 +114,11 @@ export default function Explore() {
       if (position) setSearchPosition(position);
       setLocating(false); dispatch(setPending(true)); dispatch(setInput(""));
       const point = position ? { latitude: position.latitude, longitude: position.longitude } : coordinates;
-      const response = await api<Conversation>("/api/chat", json("POST", { message, conversation_id: active?.id || null, origin_text: position?.address || origin || null, ...point }));
-      dispatch(setConversation(response)); history.reload();
+      const departure = position?.isDefault ? {} : { origin_text: position?.address || origin || null, ...point };
+      const response = await api<Conversation>("/api/chat", json("POST", { message, conversation_id: active?.id || null, ...departure }));
+      const previousMessages = new Map(active?.id === response.id ? active.messages.map((item) => [item.id, item]) : []);
+      dispatch(setConversation({ ...response, messages: response.messages.map((item) => previousMessages.get(item.id) || item) }));
+      history.reload();
     } catch (error) { setError(errorMessage(error)); dispatch(setInput(message)); }
     finally { locked.current = false; setLocating(false); dispatch(setPending(false)); }
   };
@@ -164,7 +172,7 @@ export default function Explore() {
           <div className="chat-title"><span className="assistant-avatar"><LuLeaf /></span><div><h2>맛집 산책 도우미</h2><p>AI와 함께하는 동네 탐색</p></div><span className="badge">AI</span></div>
           <div className="chat-messages" aria-live="polite">
             {!active?.messages.length && <div className="chat-welcome"><span className="welcome-symbol"><LuCompass /></span><span className="eyebrow">반가워요, {user?.nickname}님</span><h2>어떤 맛을<br />찾아 떠나볼까요?</h2><p>동네, 음식, 예산을 편하게 이야기해 주세요.<br />필요한 조건은 제가 짧게 여쭤볼게요.</p><div className="suggestions">{suggestions.map((text) => <button key={text} onClick={() => send(text)} disabled={busy}>{text}<LuArrowUp /></button>)}</div></div>}
-            {active?.messages.map((message) => <div key={message.id} className={"chat-row " + message.role}>{message.role === "assistant" && <span className="message-avatar"><LuLeaf /></span>}<div className="message-bubble"><ReactMarkdown>{message.content}</ReactMarkdown></div></div>)}
+            {active?.messages.map((message) => <div key={message.id} className={"chat-row " + message.role}>{message.role === "assistant" && <span className="message-avatar"><LuLeaf /></span>}<div className="message-bubble"><ReactMarkdown>{message.content}</ReactMarkdown>{!!message.search_suggestions?.length && <nav className="search-suggestions" aria-label="Google 검색 제안"><small>Google 검색 제안</small>{message.search_suggestions.map((item, index) => <a href={item.url} key={index} target="_blank" rel="noreferrer">{item.label}</a>)}</nav>}</div></div>)}
             {pending && <div className="chat-row assistant"><span className="message-avatar"><LuLeaf /></span><div className="message-bubble thinking" role="status"><span /><span /><span /><small>조건과 음식점 정보를 살펴보고 있어요.</small></div></div>}
             {error && <div className="inline-error" role="alert">{error}</div>}
             <div ref={bottom} />
@@ -172,6 +180,7 @@ export default function Explore() {
           {conditions && <div className="condition-chips">{[conditions.area, conditions.cuisine, conditions.party_size ? conditions.party_size + "명" : null, conditions.budget_total ? "총 " + money(conditions.budget_total) : null, conditions.radius_metres ? "반경 " + distanceLabel(conditions.radius_metres) : null, conditions.atmosphere, conditions.purpose].filter(Boolean).map((value, i) => <span key={i}>{value}</span>)}</div>}
           <div className="chat-compose">
             <div className="origin-field"><LuMapPin /><input aria-label="출발지 또는 목적지" value={origin} maxLength={300} disabled={busy} onChange={(event) => { setOrigin(event.target.value); setCoordinates(null); setLocationMessage(""); }} placeholder="동네·역명·출발지 입력 (선택)" /><button type="button" className="icon-button" aria-label="지도에서 기준 위치 선택" disabled={busy} onClick={() => setMapRequest({})}><LuMap /></button><button type="button" className={"icon-button " + (coordinates ? "selected" : "")} aria-label="현재 위치 사용" disabled={busy} onClick={locate}><LuLocateFixed /></button></div>
+            <p className="helper origin-hint">출발지를 입력하지 않으면 기본 주소를 추천에 활용해요.</p>
             {locating && <p className="helper" role="status">검색 기준 위치를 확인하고 있습니다.</p>}
             {locationMessage && <p className="helper" role="status">{locationMessage}</p>}
             <form className="message-form" onSubmit={(event) => { event.preventDefault(); send(); }}>

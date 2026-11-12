@@ -36,7 +36,7 @@ class SearchConditions(InputModel):
 
 class RankedRestaurant(InputModel):
   restaurant_id: int
-  evidence_keys: list[Literal["area", "category", "menu_budget", "community_reviews", "preferences", "distance", "atmosphere", "purpose"]] = Field(default_factory=list, max_length=8)
+  evidence_keys: list[Literal["area", "category", "menu", "menu_budget", "opening", "community_reviews", "preferences", "distance", "atmosphere", "purpose"]] = Field(default_factory=list, max_length=10)
   reason: str | None = Field(default=None, max_length=650)
 
 

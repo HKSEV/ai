@@ -34,15 +34,24 @@ def hours_for_date(hours, closed_dates, day):
 def opening_status(restaurant, visit_at=None):
   if not restaurant.hours_source or not fresh(restaurant.hours_checked_at):
     return {"label": "확인 필요", "basis": "영업시간 정보가 없거나 확인 기한이 지났습니다.", "is_realtime": False}
-  hours, closed_dates = restaurant.hours or {}, restaurant.closed_dates or []
+  return schedule_status(restaurant.hours or {}, restaurant.closed_dates or [], visit_at)
+
+
+def visit_time(visit_at):
   moment = visit_at or datetime.now(KST)
-  moment = moment.replace(tzinfo=KST) if moment.tzinfo is None else moment.astimezone(KST)
+  return moment.replace(tzinfo=KST) if moment.tzinfo is None else moment.astimezone(KST)
+
+
+def schedule_status(hours, closed_dates, visit_at=None):
+  moment = visit_time(visit_at)
   today, date_override = hours_for_date(hours, closed_dates, moment.date())
+  if today and "hours" in today.get("conflicts", []):
+    return {"label": "확인 필요", "basis": "출처별 영업 일정이 달라 방문 전 확인이 필요합니다.", "is_realtime": False}
   try:
     for offset in ([0] if date_override else [0, -1]):
       day = moment.date() + timedelta(days=offset)
       period, exception = hours_for_date(hours, closed_dates, day)
-      if not period or period.get("closed"):
+      if not period or period.get("closed") or not period.get("open") or not period.get("close"):
         continue
       start = datetime.combine(day, time.fromisoformat(period["open"]), KST)
       end = datetime.combine(day, time.fromisoformat(period["close"]), KST)
@@ -59,10 +68,18 @@ def opening_status(restaurant, visit_at=None):
             resume += timedelta(days=1)
           if pause <= moment < resume:
             return {"label": "브레이크타임", "basis": basis, "is_realtime": False}
+        if period.get("last_order"):
+          cutoff = datetime.combine(day, time.fromisoformat(period["last_order"]), KST)
+          if cutoff < start:
+            cutoff += timedelta(days=1)
+          if start <= cutoff <= moment:
+            return {"label": "라스트오더 이후", "basis": basis, "is_realtime": False}
+        if period.get("conflicts"):
+          return {"label": "확인 필요", "basis": "출처별 영업 일정이 달라 방문 전 확인이 필요합니다.", "is_realtime": False}
         return {"label": "영업시간 내", "basis": basis, "is_realtime": False}
   except (AttributeError, KeyError, ValueError, TypeError):
     return {"label": "확인 필요", "basis": "영업시간 형식 확인이 필요합니다.", "is_realtime": False}
-  if today is None:
+  if not today or not (today.get("closed") or (today.get("open") and today.get("close"))):
     return {"label": "확인 필요", "basis": "해당 요일의 영업시간 정보가 없습니다.", "is_realtime": False}
   return {
     "label": "휴무일" if today.get("closed") else "영업시간 외",
@@ -72,9 +89,14 @@ def opening_status(restaurant, visit_at=None):
 
 
 def menu_combination(menus, party_size):
+  available = [{"id": menu.id, "name": menu.name, "price": menu.price, "servings": menu.servings}
+               for menu in menus if menu.available and menu.price is not None and menu.price > 0 and menu.servings > 0 and fresh(menu.checked_at)]
+  return minimum_order(available, party_size)
+
+
+def minimum_order(available, party_size):
   if not party_size:
     return None
-  available = [menu for menu in menus if menu.available and menu.price is not None and menu.price > 0 and menu.servings > 0 and fresh(menu.checked_at)]
   if not available:
     return None
   # Unbounded minimum cost coverage; servings represent a complete meal, not side dishes.
@@ -85,17 +107,58 @@ def menu_combination(menus, party_size):
     if math.isinf(cost):
       continue
     for menu in available:
-      target = min(party_size, count + menu.servings)
-      if cost + menu.price < dp[target][0]:
-        dp[target] = (cost + menu.price, selected + [menu])
+      target = min(party_size, count + menu["servings"])
+      if cost + menu["price"] < dp[target][0]:
+        dp[target] = (cost + menu["price"], selected + [menu])
   total, selected = dp[party_size]
   if math.isinf(total):
     return None
   grouped = {}
   for menu in selected:
-    grouped.setdefault(menu.id, {"menu_id": menu.id, "name": menu.name, "price": menu.price, "quantity": 0, "servings": menu.servings})
-    grouped[menu.id]["quantity"] += 1
+    identity = menu["id"]
+    grouped.setdefault(identity, {"menu_id": identity, "name": menu["name"], "price": menu["price"], "quantity": 0, "servings": menu["servings"]})
+    grouped[identity]["quantity"] += 1
   return {"items": list(grouped.values()), "total": total, "per_person": math.ceil(total / party_size), "party_size": party_size, "basis": "확인된 메뉴 가격으로 계산한 예상액 · 추가 주문/가격 변동 제외"}
+
+
+def order_estimate(menus, party_size, cuisine):
+  priced = [menu for menu in menus if menu["available"] and menu["is_current"] and menu["price"]]
+  matching = [menu for menu in priced if cuisine and cuisine in menu["name"]]
+  priced = matching or priced
+  order = minimum_order([menu for menu in priced if menu["servings"]], party_size)
+  if order or not priced:
+    return order
+  menu = min(priced, key=lambda item: item["price"])
+  quantity = party_size or 1
+  return {
+    "items": [{"menu_id": menu["id"], "name": menu["name"], "price": menu["price"], "quantity": quantity, "servings": menu["servings"]}],
+    "total": menu["price"] * quantity, "per_person": menu["price"] if party_size else None, "party_size": party_size,
+    "basis": "1인당 같은 메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외" if party_size else "메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외",
+  }
+
+
+def visit_schedule(hours, closed_dates, visit_at):
+  day = visit_time(visit_at).date()
+  period, exception = hours_for_date(hours, closed_dates, day)
+  period = period or {}
+  details = ["영업시간 확인 필요"]
+  if period.get("closed"):
+    details = ["휴무"]
+  else:
+    if period.get("open") and period.get("close"):
+      end = ("다음 날 " if period["close"] <= period["open"] else "") + period["close"]
+      details = [period["open"] + "–" + end]
+    if period.get("break_start") and period.get("break_end"):
+      details.append("브레이크타임 " + period["break_start"] + "–" + period["break_end"])
+    if period.get("last_order"):
+      details.append("라스트오더 " + period["last_order"])
+    for field, label in [("break", "브레이크타임"), ("last_order", "라스트오더")]:
+      if field in period.get("conflicts", []):
+        details.append(label + " 확인 필요")
+  return {
+    "date": day.isoformat(), "basis": "날짜별" if exception else "요일별",
+    "summary": " · ".join(details), "sources": period.get("sources", {}),
+  }
 
 
 def distance_metres(lat1, lng1, lat2, lng2):
@@ -139,7 +202,7 @@ def query_kakao(query, latitude=None, longitude=None, radius_metres=None):
   endpoint = "keyword"
   if latitude is not None and longitude is not None:
     params.update({"x": longitude, "y": latitude, "radius": min(radius_metres or 5000, 20000), "sort": "distance"})
-    if radius_metres and query in {"음식점", "카페"}:
+    if query in {"음식점", "카페"}:
       endpoint = "category"
       params.pop("query")
   with httpx.Client(timeout=12) as client:
@@ -190,7 +253,9 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
   cuisine = conditions.get("cuisine")
   if settings.kakao_local_key and settings.kakao_storage_allowed:
     try:
-      if radius_metres:
+      if latitude is not None and not requested_area:
+        query = cuisine or "음식점"
+      elif radius_metres:
         query = (requested_area + " " if requested_area and requested_area not in {"노원", "노원구", "서울 노원구"} else "") + (cuisine or "음식점")
       else:
         query = "노원구 " + area + " " + (cuisine or "음식점")
@@ -221,10 +286,8 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
     if cuisine and cuisine not in haystack + " " + menu_text:
       continue
     combo = candidate["menu_combination"]
-    if combo and conditions.get("budget_total") and combo["total"] > conditions["budget_total"]:
-      continue
     evidence = ["area", "category"]
-    confirmed = [row.area, row.category]
+    confirmed = [row.category]
     if combo:
       evidence.append("menu_budget")
       confirmed.append("메뉴 가격 확인")
@@ -241,7 +304,8 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
     candidate["available_evidence"] = evidence
     candidate["confirmed_matches"] = confirmed
     candidate["budget_note"] = None if combo else "메뉴·가격 또는 인원 정보가 부족해 예산 충족 여부를 확인할 수 없습니다."
-    candidate["_score"] = 10 * ("preferences" in evidence) + len(candidate["review_summary"]) + 5 * bool(combo) - (candidate["distance_metres"] or 0) / 1000
+    priced_match = combo and (not conditions.get("budget_total") or combo["total"] <= conditions["budget_total"])
+    candidate["_score"] = 10 * ("preferences" in evidence) + len(candidate["review_summary"]) + 5 * bool(priced_match) - (candidate["distance_metres"] or 0) / 1000
     result.append(candidate)
   result.sort(key=lambda item: item["_score"], reverse=True)
   return result[:12], notices

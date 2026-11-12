@@ -57,12 +57,21 @@ export interface RestaurantOption {
 export type RestaurantChoice = Pick<RestaurantOption, "id" | "name">;
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
+export interface FactSource {
+  name: string;
+  url: string | null;
+  checked_at: string | null;
+}
+
 export interface OpeningPeriod {
   closed?: boolean;
   open?: string;
   close?: string;
   break_start?: string;
   break_end?: string;
+  last_order?: string;
+  sources?: Record<string, FactSource[]>;
+  conflicts?: string[];
 }
 
 export interface Restaurant extends RestaurantOption {
@@ -80,10 +89,15 @@ export interface Restaurant extends RestaurantOption {
   hours_source_url: string | null;
   hours_checked_at: string | null;
   opening: { label: string; basis: string; is_realtime: boolean };
-  menus: { id: number; name: string; price: number | null; servings: number; available: boolean; source: string; source_url: string | null; checked_at: string | null; is_current: boolean }[];
-  menu_combination: { items: { menu_id: number; name: string; price: number; quantity: number; servings: number }[]; total: number; per_person: number; party_size: number; basis: string } | null;
+  visit_schedule?: { date: string; basis: string; summary: string; sources: Record<string, FactSource[]> };
+  menus: { id: number; name: string; price: number | null; servings: number | null; available: boolean; source: string; source_url: string | null; checked_at: string | null; is_current: boolean; sources?: FactSource[]; price_conflict?: boolean }[];
+  menu_combination: { items: { menu_id: number; name: string; price: number; quantity: number; servings: number | null }[]; total: number; per_person: number | null; party_size: number | null; basis: string } | null;
+  recommended_menu?: string | null;
   distance_metres: number | null;
   distance_basis: string;
+  travel_label?: string;
+  travel_seconds?: number | null;
+  travel_mode?: string | null;
   map_url: string;
   directions_url: string;
   review_summary: { id: number; rating: number; excerpt: string; created_at: string }[];
@@ -97,6 +111,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   recommendations: Restaurant[];
+  search_suggestions?: { label: string; url: string }[];
   created_at: string;
 }
 
