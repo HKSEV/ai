@@ -1,8 +1,7 @@
-import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from dto.account import InputModel
 
@@ -35,24 +34,30 @@ class SearchConditions(InputModel):
   clarification: str | None = Field(default=None, max_length=200)
 
 
+class SuggestedMenu(InputModel):
+  name: str = Field(min_length=1, max_length=100)
+  quantity: int = Field(ge=1, le=30)
+
+
+class SuggestedOrder(InputModel):
+  items: list[SuggestedMenu] = Field(min_length=1, max_length=5)
+  estimated_total: int | None = Field(default=None, ge=1, le=20000000)
+
+
 class RankedRestaurant(InputModel):
   restaurant_id: int
   evidence_keys: list[Literal["area", "category", "menu", "menu_budget", "opening", "community_reviews", "preferences", "distance", "atmosphere", "purpose"]] = Field(default_factory=list, max_length=10)
   reason: str | None = Field(default=None, max_length=650)
-  estimated_hours: str | None = None
+  explanation: str | None = Field(default=None, max_length=650)
+  order: SuggestedOrder | None = None
 
-  @field_validator("estimated_hours", mode="before")
+  @field_validator("order", mode="wrap")
   @classmethod
-  def validate_estimated_hours(cls, value):
-    if not isinstance(value, str):
+  def validate_order(cls, value, handler):
+    try:
+      return handler(value)
+    except ValidationError:
       return None
-    clock = r"(?:[01][0-9]|2[0-3]):[0-5][0-9]"
-    match = re.fullmatch(rf"({clock})\s*[-–~]\s*({clock}|24:00)", value.strip())
-    if not match:
-      return None
-    start, end = match.groups()
-    end = "00:00" if end == "24:00" else end
-    return f"{start}-{end}" if start != end else None
 
 
 class RecommendationResult(InputModel):

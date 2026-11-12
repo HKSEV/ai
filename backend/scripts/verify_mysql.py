@@ -104,7 +104,8 @@ def structured(client,prompt,data,schema):
     if schema is SearchConditions:
         old=data['previous']
         return schema(area='공릉동',cuisine='한식',party_size=2,budget_total=20000 if not old else 19000)
-    return RecommendationResult(items=[{'restaurant_id':identity,'evidence_keys':['category','menu_budget','community_reviews']}])
+    return RecommendationResult(items=[{'restaurant_id':identity,'evidence_keys':['category','menu_budget','community_reviews'],
+        'order':{'items':[{'name':'QA 정식','quantity':2}],'estimated_total':18000}}])
 with patch.object(chat_service,'get_client',return_value=object()),patch.object(chat_service,'generate_structured',side_effect=structured):
     response=first.post('/api/chat',json={'message':'공릉동에서 둘이 2만원 안에 먹을 곳'})
     check('chat connects DB and mocked Gemini',response.status_code==200)
