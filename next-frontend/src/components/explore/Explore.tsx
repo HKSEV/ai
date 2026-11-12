@@ -51,7 +51,7 @@ export default function Explore() {
   const [showHistory, setShowHistory] = useState(false);
   const [origin, setOrigin] = useState("");
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
-  const [locationMessage, setLocationMessage] = useState("");
+  const [locationMessage, setLocationMessage] = useState("출발지를 입력하지 않으면 기본 주소를 추천에 활용해요.");
   const [locating, setLocating] = useState(false);
   const [opening, setOpening] = useState(false);
   const [mapRequest, setMapRequest] = useState<{ message?: string } | null>(null);
@@ -180,7 +180,6 @@ export default function Explore() {
           {conditions && <div className="condition-chips">{[conditions.area, conditions.cuisine, conditions.party_size ? conditions.party_size + "명" : null, conditions.budget_total ? "총 " + money(conditions.budget_total) : null, conditions.radius_metres ? "반경 " + distanceLabel(conditions.radius_metres) : null, conditions.atmosphere, conditions.purpose].filter(Boolean).map((value, i) => <span key={i}>{value}</span>)}</div>}
           <div className="chat-compose">
             <div className="origin-field"><LuMapPin /><input aria-label="출발지 또는 목적지" value={origin} maxLength={300} disabled={busy} onChange={(event) => { setOrigin(event.target.value); setCoordinates(null); setLocationMessage(""); }} placeholder="동네·역명·출발지 입력 (선택)" /><button type="button" className="icon-button" aria-label="지도에서 기준 위치 선택" disabled={busy} onClick={() => setMapRequest({})}><LuMap /></button><button type="button" className={"icon-button " + (coordinates ? "selected" : "")} aria-label="현재 위치 사용" disabled={busy} onClick={locate}><LuLocateFixed /></button></div>
-            <p className="helper origin-hint">출발지를 입력하지 않으면 기본 주소를 추천에 활용해요.</p>
             {locating && <p className="helper" role="status">검색 기준 위치를 확인하고 있습니다.</p>}
             {locationMessage && <p className="helper" role="status">{locationMessage}</p>}
             <form className="message-form" onSubmit={(event) => { event.preventDefault(); send(); }}>

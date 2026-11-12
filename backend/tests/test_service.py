@@ -201,13 +201,18 @@ class ServiceTests(unittest.TestCase):
 
   @patch("service.chat_service.get_client")
   def test_chat_db_menus_followup_history_and_delete(self, client):
-    with self.ai():
+    menu = {"name": "4인 세트", "quantity": 1}
+    ranked = {"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["area", "menu_budget"],
+                         "order": {"items": [menu], "estimated_total": 52000}}]}
+    with self.ai(ranked=ranked) as generate:
       response = self.client.post("/api/chat", json={"message": "공릉동 4명 6만원 찌개"})
     self.assertEqual(response.status_code, 200, response.text)
     conversation = response.json()
     recommendation = conversation["messages"][-1]["recommendations"][0]
-    self.assertEqual(recommendation["menu_combination"]["total"], 56000)
-    self.assertEqual(recommendation["menu_combination"]["per_person"], 14000)
+    self.assertEqual(recommendation["menu_combination"]["items"], [menu])
+    self.assertEqual(recommendation["menu_combination"]["total"], 52000)
+    self.assertEqual(recommendation["menu_combination"]["per_person"], 13000)
+    self.assertIn({"name": menu["name"], "price": 52000, "servings": 4}, generate.call_args.args[2]["candidates"][0]["menus"])
     self.assertIn("가격", recommendation["reason"])
     with self.factory() as db:
       self.assertEqual(db.scalar(select(func.count()).select_from(Visit)), 0)
@@ -281,21 +286,26 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual([(item["id"], item["reason"]) for item in result["messages"][-1]["recommendations"]], [(other_id, second["reason"])])
 
   @patch("service.chat_service.get_client")
-  def test_chat_uses_gemini_judgment_for_reasons_and_estimated_hours(self, client):
+  def test_chat_uses_gemini_explanations_and_orders_for_each_restaurant(self, client):
     with self.factory() as db:
-      first = Restaurant(name="검증용 중계피자", address="서울 노원구 중계로 101", area="중계동", category="음식점 > 양식 > 피자", source="검증")
-      second = Restaurant(name=first.name, address="서울 노원구 중계로 202", area=first.area, category=first.category, source="검증")
+      first = Restaurant(name="검증용 중계피자", address="서울 노원구 중계로 101", area="중계동", category="음식점 > 양식 > 피자 > 중계피자", source="검증")
+      second = Restaurant(name=first.name, address="서울 노원구 중계로 202", area=first.area, category="음식점 > 양식 > 피자", source="검증")
       db.add_all([first, second]); db.commit()
     reason = "두 분이 피자를 나눠 드시기 좋은 선택입니다."
-    followup_reason = "세 분이 피자를 함께 나눠 드시기 좋은 선택입니다."
+    explanation = "두 분이라면 큰 피자 한 판을 나눠 드시는 구성이 어울립니다. 한 끼를 간단히 즐길 수 있어 추천합니다."
+    followup_explanation = "세 분이 함께 먹는다면 서로 다른 맛을 골라 나누기 좋습니다."
+    menu = {"name": "페퍼로니 피자", "quantity": 1}
+    followup_menu = {"name": "반반 피자", "quantity": 2}
     outputs = [
       {"area": "중계동", "cuisine": "피자", "party_size": 2, "visit_at": "2026-12-25T19:00:00+09:00"},
       {"items": [
-        {"restaurant_id": first.id, "evidence_keys": ["category"], "reason": reason, "estimated_hours": "11:00-24:00"},
-        {"restaurant_id": second.id, "evidence_keys": ["category"], "estimated_hours": ["11:00", "21:00"]},
+        {"restaurant_id": first.id, "evidence_keys": ["category"], "reason": reason, "explanation": explanation,
+         "order": {"items": [menu], "estimated_total": 27700}},
+        {"restaurant_id": second.id, "evidence_keys": ["category"], "order": {"items": [], "estimated_total": -1}},
       ]},
       {"party_size": 3},
-      {"items": [{"restaurant_id": first.id, "evidence_keys": ["category"], "reason": followup_reason, "estimated_hours": "11:00-24:00"}]},
+      {"items": [{"restaurant_id": first.id, "evidence_keys": ["category"], "explanation": followup_explanation,
+                  "order": {"items": [followup_menu], "estimated_total": 39600}}]},
     ]
     generate = Mock(side_effect=[SimpleNamespace(text=json.dumps(output, ensure_ascii=False)) for output in outputs])
     client.return_value = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
@@ -306,13 +316,17 @@ class ServiceTests(unittest.TestCase):
     item, other = message["recommendations"]
     self.assertEqual((item["id"], other["id"]), (first.id, second.id))
     self.assertEqual(item["reason"], reason)
-    self.assertEqual(item["estimated_hours"], "11:00–다음 날 00:00")
-    self.assertIsNone(item["hours"])
-    self.assertIsNone(other["estimated_hours"])
-    self.assertEqual(item["opening"]["label"], "확인 필요")
-    self.assertIn(reason, message["content"])
-    self.assertIn("AI 추정 영업시간 11:00–다음 날 00:00", message["content"])
-    self.assertIn("방문 요청 19:00 · 확인 필요", message["content"])
+    self.assertEqual((item["category"], other["category"]), ("피자", "양식"))
+    self.assertNotIn(first.category, item["confirmed_matches"])
+    self.assertEqual(item["menu_combination"]["items"], [menu])
+    self.assertEqual(item["menu_combination"]["total"], 27700)
+    self.assertEqual(item["menu_combination"]["per_person"], 13850)
+    self.assertIsNone(other["menu_combination"])
+    self.assertIn(explanation, message["content"])
+    self.assertIn("AI 예상 금액은 총 27,700원(1인당 13,850원)", message["content"])
+    self.assertNotIn(reason, message["content"])
+    self.assertNotIn("영업시간", message["content"])
+    self.assertNotIn("\n- ", message["content"])
     self.assertNotIn(first.address, message["content"])
 
     response = self.client.post("/api/chat", json={"conversation_id": initial["id"], "message": "그중에서 3명으로 바꿔줘"})
@@ -320,19 +334,20 @@ class ServiceTests(unittest.TestCase):
     updated = response.json()
     self.assertEqual(updated["conditions"]["party_size"], 3)
     self.assertEqual(updated["conditions"]["cuisine"], "피자")
-    self.assertIn(followup_reason, updated["messages"][-1]["content"])
+    self.assertIn(followup_explanation, updated["messages"][-1]["content"])
     history = self.client.get("/api/conversations/" + str(initial["id"])).json()["messages"][-1]
-    self.assertEqual(history["recommendations"][0]["reason"], followup_reason)
-    self.assertEqual(history["recommendations"][0]["estimated_hours"], item["estimated_hours"])
+    self.assertEqual(history["content"], updated["messages"][-1]["content"])
+    self.assertEqual(history["recommendations"][0]["menu_combination"]["items"], [followup_menu])
+    self.assertEqual(history["recommendations"][0]["category"], "피자")
     self.assertEqual(generate.call_count, 4)
     for call in generate.call_args_list:
       self.assertIsNone(call.kwargs["config"].tools)
     rank_input = json.loads(generate.call_args_list[1].kwargs["contents"])
     self.assertEqual({row["id"]: row["address"] for row in rank_input["candidates"]}, {first.id: first.address, second.id: second.address})
-    self.assertTrue(all(row["estimate_hours"] for row in rank_input["candidates"]))
+    self.assertEqual({row["id"]: row["display_category"] for row in rank_input["candidates"]}, {first.id: "피자", second.id: "양식"})
 
   @patch("service.chat_service.get_client")
-  def test_chat_uses_registered_schedule_and_recalculates_for_followup(self, client):
+  def test_chat_retains_registered_schedule_and_route_in_recommendations(self, client):
     with self.factory() as db:
       restaurant = db.get(Restaurant, self.restaurant_id)
       restaurant.latitude, restaurant.longitude = 37.623, 127.071
@@ -344,7 +359,10 @@ class ServiceTests(unittest.TestCase):
       db.commit()
     saved = {"label": "집", "address": "서울 노원구 공릉로 45", "latitude": 37.62, "longitude": 127.07}
     self.assertEqual(self.client.post("/api/me/addresses", json=saved).status_code, 201)
-    ranked = {"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["menu"], "estimated_hours": "10:00-20:00"}]}
+    ranked = {"items": [{"restaurant_id": self.restaurant_id, "evidence_keys": ["menu"],
+                         "order": {"items": [{"name": "온기국수", "quantity": 2}], "estimated_total": 18000}}]}
+    followup_ranked = {"items": [{**ranked["items"][0],
+                                  "order": {"items": [{"name": "온기국수", "quantity": 3}], "estimated_total": 27000}}]}
     with (
       patch("service.chat_service.geocode_origin", side_effect=[(37.65, 127.061), None]) as geocode,
       patch("service.chat_service.travel_times", side_effect=[{self.restaurant_id: 325}, {self.restaurant_id: 780}, {}]) as travel,
@@ -358,31 +376,33 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual(travel.call_args.args[:2], (37.62, 127.07))
       self.assertEqual(item["travel_label"], "기본 주소 기준 자동차 5분 25초 · 카카오모빌리티 예상")
       self.assertEqual(item["opening"]["label"], "영업시간 내")
-      self.assertIsNone(item["estimated_hours"])
       self.assertEqual(item["menu_combination"]["total"], 18000)
       self.assertEqual(item["menu_combination"]["per_person"], 9000)
       self.assertEqual(item["visit_schedule"]["summary"], "12:00–21:00 · 브레이크타임 15:00–16:00 · 라스트오더 20:30")
-      for text in [item["travel_label"], item["visit_schedule"]["summary"], item["reason"], "18,000원", "9,000원"]:
+      for text in [item["reason"], "18,000원", "9,000원"]:
         self.assertIn(text, message["content"])
+      self.assertNotIn(item["travel_label"], message["content"])
+      self.assertNotIn(item["visit_schedule"]["summary"], message["content"])
       self.assertNotIn(item["address"], message["content"])
-      with self.ai(conditions={"party_size": 3, "visit_at": "2026-12-25T20:40:00+09:00"}, ranked=ranked):
+      with self.ai(conditions={"party_size": 3, "visit_at": "2026-12-25T20:40:00+09:00"}, ranked=followup_ranked):
         response = self.client.post("/api/chat", json={"conversation_id": initial["id"], "message": "3명으로 바꾸고 오후 8시 40분에 방문할게", "origin_text": "노원역"})
       self.assertEqual(response.status_code, 200, response.text)
       updated = response.json()["messages"][-1]
+      updated_item = updated["recommendations"][0]
       self.assertEqual(travel.call_args.args[:2], (37.65, 127.061))
-      self.assertIn("3명", updated["content"])
       self.assertIn("27,000원", updated["content"])
-      self.assertIn("라스트오더 이후", updated["content"])
-      self.assertIn("지정한 출발지 기준 자동차 13분", updated["content"])
+      self.assertEqual(updated_item["opening"]["label"], "라스트오더 이후")
+      self.assertIn("지정한 출발지 기준 자동차 13분", updated_item["travel_label"])
       self.assertNotEqual(updated["content"], message["content"])
       with self.ai(conditions={"area": "공릉동"}, ranked=ranked):
         missing = self.client.post("/api/chat", json={"message": "공릉동 맛집", "origin_text": "확인되지 않는 출발지"})
       self.assertEqual(missing.status_code, 200, missing.text)
       self.assertEqual(travel.call_args.args[:2], (None, None))
-      self.assertIn("이동 시간 확인 불가", missing.json()["messages"][-1]["content"])
+      self.assertEqual(missing.json()["messages"][-1]["recommendations"][0]["travel_label"], "이동 시간 확인 불가")
       self.assertEqual([call.args[0] for call in geocode.call_args_list], ["노원역", "확인되지 않는 출발지"])
     history = self.client.get("/api/conversations/" + str(initial["id"])).json()["messages"][-1]
-    self.assertIn("라스트오더 이후", history["content"])
+    self.assertEqual(history["content"], updated["content"])
+    self.assertEqual(history["recommendations"][0]["opening"]["label"], "라스트오더 이후")
     self.assertEqual(history["recommendations"][0]["travel_label"], "이동 시간 확인 불가")
 
   def test_reviewed_restaurants_updates_until_the_current_users_last_review_is_deleted(self):

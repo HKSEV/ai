@@ -27,7 +27,7 @@ for (const extension of ['.ts', '.tsx']) {
 }
 const React = require('react');
 const { Provider } = require('react-redux');
-const { render, screen, cleanup, act, fireEvent, waitFor } = require('@testing-library/react');
+const { render, screen, cleanup, act, fireEvent, waitFor, within } = require('@testing-library/react');
 const { makeStore } = require('../src/store/store.ts');
 const { setConversation, setPending } = require('../src/store/chatSlice.ts');
 const Explore = require('../src/components/explore/Explore.tsx').default;
@@ -58,6 +58,8 @@ test('a completed follow-up with no recommendations clears cards from the previo
   store.dispatch(setConversation(conversation([message(1, [restaurant])])));
   mount(store);
   assert.ok(screen.getByText('검증용 공릉식당'));
+  assert.ok(screen.getByText('영업시간은 매장에 문의하세요.'));
+  assert.equal(screen.queryByRole('link', { name: '상세정보' }), null);
   await act(async () => { store.dispatch(setConversation(conversation([message(1, [restaurant]), message(2)]))); });
   assert.equal(screen.queryByText('검증용 공릉식당'), null);
   assert.ok(screen.getByText('당신의 한 끼를 기다려요'));
@@ -94,14 +96,29 @@ test('the recommendation panel returns to the top when the next answer arrives',
   assert.equal(panel.scrollTop, 0);
 });
 
-test('estimated hours appear in the chat and card beside the registered opening status', async () => {
+test('cards use the Kakao place details link and display the suggested order', async () => {
   const store = makeStore();
-  const item = { ...restaurant, is_demo: false, estimated_hours: '11:00–21:30' };
-  const label = 'AI 추정 영업시간 11:00–21:30 · 방문 전 확인';
-  store.dispatch(setConversation(conversation([{ ...message(1, [item]), content: '- ' + label }])));
+  const item = {
+    ...restaurant, is_demo: false, category: '피자', source: '카카오 로컬 검색', source_url: 'https://place.map.kakao.com/123',
+    opening: { label: '영업시간 내', basis: '등록된 요일별 일정 기준', is_realtime: false },
+    hours: { mon: { open: '11:00', close: '21:30' } }, estimated_hours: '11:00–21:30',
+    menu_combination: {
+      items: [{ name: '페퍼로니 피자', quantity: 1 }], total: 27000, per_person: 13500, party_size: 2,
+      basis: 'AI가 제안한 주문입니다. 실제 메뉴와 가격은 매장 안내를 확인하세요.',
+    },
+  };
+  store.dispatch(setConversation(conversation([message(1, [item])])));
   await act(async () => { mount(store); });
-  assert.equal(screen.getAllByText(label).length, 2);
-  assert.equal(screen.getByText('확인 필요').className, 'badge');
+  const card = within(screen.getByRole('article'));
+  assert.equal(card.getByRole('link', { name: '상세정보' }).getAttribute('href'), item.source_url);
+  assert.equal(card.getByRole('link', { name: '길찾기' }).getAttribute('href'), item.directions_url);
+  assert.ok(card.getByText('영업시간은 상세정보에서 확인하세요.'));
+  assert.ok(card.getByText(item.category));
+  assert.ok(card.getByText('페퍼로니 피자 × 1'));
+  assert.ok(card.getByText('27,000원'));
+  assert.ok(card.getByText('13,500원'));
+  assert.equal(card.queryByText(/11:00|영업시간 내|카카오 로컬 검색/), null);
+  assert.equal(card.queryByRole('link', { name: '지도 보기' }), null);
 });
 
 test('the current user review mark is refreshed independently of saved recommendations', async () => {
