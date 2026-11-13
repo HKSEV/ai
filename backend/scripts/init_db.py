@@ -16,7 +16,7 @@ def main():
     lines = ["-- MySQL 8.4 / utf8mb4. 기존 테이블 업그레이드는 백업 후 별도 마이그레이션이 필요합니다."]
     for table in Base.metadata.sorted_tables:
       lines.append(str(CreateTable(table).compile(dialect=mysql.dialect())) + ";")
-      lines.extend(str(CreateIndex(index).compile(dialect=mysql.dialect())) + ";" for index in table.indexes)
+      lines.extend(str(CreateIndex(index).compile(dialect=mysql.dialect())) + ";" for index in sorted(table.indexes, key=lambda item: item.name))
     args.sql.parent.mkdir(parents=True, exist_ok=True)
     args.sql.write_text("\n".join(line.rstrip() for line in "\n\n".join(lines).splitlines()) + "\n", encoding="utf-8")
     print("MySQL DDL을 생성했습니다.")

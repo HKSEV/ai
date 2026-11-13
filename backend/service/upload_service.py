@@ -1,7 +1,17 @@
+import logging
+
 from sqlalchemy import select
 
 from config.settings import settings
 from entity.models import Post, Upload, Visit
+
+
+def remove_files(filenames):
+  for filename in filenames:
+    try:
+      (settings.uploads_dir / filename).unlink(missing_ok=True)
+    except OSError:
+      logging.getLogger(__name__).warning("첨부 파일을 정리하지 못했습니다.")
 
 
 def delete_unlinked_uploads(db, ids, user_id):
@@ -15,5 +25,4 @@ def delete_unlinked_uploads(db, ids, user_id):
     filenames.append(item.filename)
     db.delete(item)
   db.commit()
-  for filename in filenames:
-    (settings.uploads_dir / filename).unlink(missing_ok=True)
+  remove_files(filenames)

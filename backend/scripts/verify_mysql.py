@@ -50,7 +50,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 Base.metadata.drop_all(engine)
 Base.metadata.create_all(engine)
-check('MySQL / 12 application tables',len(Base.metadata.tables)==12)
+check('MySQL / 15 application tables',len(Base.metadata.tables)==15)
 headers={'X-Requested-With':'nowon-walk','Origin':'http://localhost:3000'}
 first=TestClient(app,headers=headers)
 second=TestClient(app,headers=headers)
@@ -66,14 +66,18 @@ def login(client,kakao_id,destination="/onboarding/address",email=None):
     return client.get('/api/auth/me').json()
 user=login(first,'mysql-qa-1',email='walk@example.com')
 check('signup email persisted and address setup pending',user['email']=='walk@example.com' and user['address_setup_pending'])
-check('unshared email allows signup',login(second,'mysql-qa-2')['email'] is None)
+other=login(second,'mysql-qa-2')
+check('unshared email allows signup',other['email'] is None)
+check('first signup is ADMIN and next signup is USER',user['role']=='ADMIN' and other['role']=='USER')
+check('admin API denies an authenticated USER',second.get('/api/admin/dashboard').status_code==403)
 body={'nickname':'노원검증곰','preferences':['한식'],'budget_min':5000,'budget_max':15000}
 check('profile writes',first.put('/api/me',json=body).status_code==200)
 check('other account retains nickname',second.get('/api/auth/me').json()['nickname']!='노원검증곰')
 check('nickname collision rejected',second.put('/api/me',json=body).status_code==409)
 address=first.post('/api/me/addresses',json={'label':'집','address':'서울 노원구 공릉동 1','latitude':37.65,'longitude':127.06,'is_default':True}).json()
 check('address persisted',first.get('/api/me/addresses').json()[0]['address']=='서울 노원구 공릉동 1')
-check('profile and completed onboarding survive session recreation',login(first,'mysql-qa-1','/explore','walk@example.com')['nickname']=='노원검증곰')
+returning=login(first,'mysql-qa-1','/explore','walk@example.com')
+check('profile, role and onboarding survive session recreation',returning['nickname']=='노원검증곰' and returning['role']=='ADMIN')
 check('other user cannot read addresses',second.get('/api/me/addresses').json()==[])
 check('other user cannot change address',second.put('/api/me/addresses/'+str(address['id']),json={'label':'집','address':'서울 노원구 상계동 1','is_default':True}).status_code==404)
 with SessionLocal() as db:

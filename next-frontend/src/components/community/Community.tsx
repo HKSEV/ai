@@ -3,17 +3,25 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSelector } from "react-redux";
 import { LuArrowUpRight, LuLeaf, LuPenLine } from "react-icons/lu";
 import type { PageResult, Post } from "@/app/types/Service";
 import { checkedTime } from "@/app/lib/format";
 import useApiQuery from "@/app/lib/useApiQuery";
 import { Empty, ErrorState, Loading, Pagination } from "@/components/ui/States";
+import type { RootState } from "@/store/store";
+import PostDeleteButton from "./PostDeleteButton";
 
 export default function Community() {
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
+  const admin = useSelector((state: RootState) => state.auth.user?.role === "ADMIN");
   const query = useApiQuery<PageResult<Post>>(`/api/posts?kind=${kind}&sort=${sort}&page=${page}`.replace("kind=&", ""));
+  const reloadAfterDelete = () => {
+    if (page > 1 && query.data?.items.length === 1) setPage(page - 1);
+    else query.reload();
+  };
   return (
     <div className="content-page">
       <section className="relative flex items-center justify-between gap-8 overflow-hidden rounded-[1.3rem] border border-[#dce4d3] bg-[#e9eee2] px-12 py-[2.6rem] mobile:gap-2 mobile:rounded-2xl mobile:px-[1.4rem] mobile:py-[1.8rem]">
@@ -45,24 +53,27 @@ export default function Community() {
       {query.error && <ErrorState message={query.error} retry={query.reload} />}
       {query.data?.items.length === 0 && <Empty title="첫 이야기를 기다리고 있어요." text="이웃에게 나누고 싶은 한 끼가 있나요?" />}
       <div className="grid grid-cols-3 gap-[1.4rem] tablet:grid-cols-2 mobile:grid-cols-1 mobile:gap-[1.2rem]">
-        {query.data?.items.map((post) => <Link className="min-w-0 overflow-hidden rounded-2xl border border-line bg-paper transition-[box-shadow,translate] duration-200 hover:-translate-y-[3px] hover:shadow-[0_10px_35px_#2233470c]" key={post.id} href={"/community/" + post.id}>
-          <div className={"relative flex h-[175px] flex-col items-center justify-center overflow-hidden mobile:h-[190px] " + (post.kind === "review" ? "bg-[#e6ecdf] text-[#76906b]" : "bg-[#eee9dd] text-[#9a8d70]")}>
-            {post.photo_urls[0] ? <Image className="object-cover" src={post.photo_urls[0]} fill sizes="(max-width: 700px) 100vw, 33vw" unoptimized alt={post.title + " 첨부 사진"} /> : <>
-              <LuLeaf className="mb-[.55rem] -rotate-20 stroke-1 text-[3rem]" />
-              <span className="text-[.69rem] tracking-[.15em]">{post.kind === "review" ? "이웃의 맛집 노트" : "산책하며 남긴 이야기"}</span>
-            </>}
-            <span className="badge absolute top-[.8rem] left-[.8rem] bg-[#fffefaed]">{post.kind === "review" ? "음식점 리뷰" : "서비스 사용 후기"}</span>
-          </div>
-          <div className="p-5 mobile:p-[1.2rem]">
-            {post.rating !== null && <p className="flex flex-wrap items-center gap-2 text-[.75rem] text-coral">★ {post.rating}<span className="text-[.68rem] text-muted">{post.restaurant_name}</span></p>}
-            <h2 className="mt-[.3rem] mb-[.55rem] flex items-center justify-between gap-[.6rem] text-[.98rem]">{post.title}<LuArrowUpRight className="text-[#8f9d87]" /></h2>
-            <p className="line-clamp-2 min-h-[2.8rem] text-[.77rem] leading-[1.85] wrap-anywhere text-muted">{post.content}</p>
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#eeeee5] pt-[.8rem] text-[.64rem] text-[#939a8e] mobile:text-[.65rem]">
-              <span className="text-[#61715e]">{post.author}</span><time>{checkedTime(post.created_at)}</time>
+        {query.data?.items.map((post) => <article className="relative min-w-0 overflow-hidden rounded-2xl border border-line bg-paper transition-[box-shadow,translate] duration-200 hover:-translate-y-[3px] hover:shadow-[0_10px_35px_#2233470c]" key={post.id}>
+          <Link className="block h-full" href={"/community/" + post.id}>
+            <div className={"relative flex h-[175px] flex-col items-center justify-center overflow-hidden mobile:h-[190px] " + (post.kind === "review" ? "bg-[#e6ecdf] text-[#76906b]" : "bg-[#eee9dd] text-[#9a8d70]")}>
+              {post.photo_urls[0] ? <Image className="object-cover" src={post.photo_urls[0]} fill sizes="(max-width: 700px) 100vw, 33vw" unoptimized alt={post.title + " 첨부 사진"} /> : <>
+                <LuLeaf className="mb-[.55rem] -rotate-20 stroke-1 text-[3rem]" />
+                <span className="text-[.69rem] tracking-[.15em]">{post.kind === "review" ? "이웃의 맛집 노트" : "산책하며 남긴 이야기"}</span>
+              </>}
+              <span className="badge absolute top-[.8rem] left-[.8rem] bg-[#fffefaed]">{post.kind === "review" ? "음식점 리뷰" : "서비스 사용 후기"}</span>
             </div>
-            {post.verification_status === "verified" && <span className="badge">방문 인증 완료</span>}
-          </div>
-        </Link>)}
+            <div className="p-5 mobile:p-[1.2rem]">
+              {post.rating !== null && <p className="flex flex-wrap items-center gap-2 text-[.75rem] text-coral">★ {post.rating}<span className="text-[.68rem] text-muted">{post.restaurant_name}</span></p>}
+              <h2 className="mt-[.3rem] mb-[.55rem] flex items-center justify-between gap-[.6rem] text-[.98rem]">{post.title}<LuArrowUpRight className="text-[#8f9d87]" /></h2>
+              <p className="line-clamp-2 min-h-[2.8rem] text-[.77rem] leading-[1.85] wrap-anywhere text-muted">{post.content}</p>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#eeeee5] pt-[.8rem] text-[.64rem] text-[#939a8e] mobile:text-[.65rem]">
+                <span className="text-[#61715e]">{post.author}</span><time>{checkedTime(post.created_at)}</time>
+              </div>
+              {post.verification_status === "verified" && <span className="badge">방문 인증 완료</span>}
+            </div>
+          </Link>
+          {admin && <div className="absolute top-[.6rem] right-[.6rem]"><PostDeleteButton post={post} label={post.title + " 삭제"} onDeleted={reloadAfterDelete} /></div>}
+        </article>)}
       </div>
       {query.data && <Pagination page={page} pages={query.data.pages} onChange={setPage} />}
     </div>

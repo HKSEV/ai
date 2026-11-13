@@ -1,9 +1,13 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, false
+from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from config.database import Base
+
+
+ADMIN = "ADMIN"
+USER = "USER"
 
 
 def utcnow():
@@ -22,6 +26,37 @@ class User(Base):
   budget_min: Mapped[int | None] = mapped_column(Integer)
   budget_max: Mapped[int | None] = mapped_column(Integer)
   created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+  role: Mapped[str] = mapped_column(String(5), default=USER, server_default=USER)
+  __table_args__ = (CheckConstraint("role IN ('ADMIN', 'USER')", name="ck_users_role"),)
+
+
+class AdminAssignment(Base):
+  __tablename__ = "admin_assignment"
+  id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+  user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+  __table_args__ = (CheckConstraint("id = 1", name="ck_admin_assignment_id"),)
+
+
+class AdminAction(Base):
+  __tablename__ = "admin_actions"
+  id: Mapped[int] = mapped_column(primary_key=True)
+  actor_name: Mapped[str] = mapped_column(String(40))
+  action: Mapped[str] = mapped_column(String(32))
+  target_id: Mapped[str] = mapped_column(String(40))
+  target_label: Mapped[str] = mapped_column(String(200))
+  created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PromptRevision(Base):
+  __tablename__ = "prompt_revisions"
+  id: Mapped[int] = mapped_column(primary_key=True)
+  name: Mapped[str] = mapped_column(String(24))
+  version: Mapped[int] = mapped_column(Integer)
+  content: Mapped[str] = mapped_column(Text)
+  editor_name: Mapped[str | None] = mapped_column(String(40))
+  restored_from: Mapped[int | None] = mapped_column(Integer)
+  created_at: Mapped[datetime | None] = mapped_column(DateTime)
+  __table_args__ = (UniqueConstraint("name", "version", name="uq_prompt_revisions_name_version"),)
 
 
 class AuthSession(Base):
@@ -70,6 +105,8 @@ class Restaurant(Base):
   source_url: Mapped[str | None] = mapped_column(String(500))
   checked_at: Mapped[datetime | None] = mapped_column(DateTime)
   is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+  admin_edited_at: Mapped[datetime | None] = mapped_column(DateTime)
+  deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Menu(Base):

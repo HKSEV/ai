@@ -3,9 +3,11 @@ import json
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -16,15 +18,16 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from google.genai.errors import ServerError
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from config.database import Base, create_database_engine, get_db
 from config.settings import settings
 from dto.chat import RecommendationResult, SearchConditions
-from entity.models import Address, AuthSession, Conversation, Menu, Message, OAuthState, Post, Restaurant, SearchRecord, Upload, User, Visit, utcnow
+from entity.models import Address, AdminAssignment, AuthSession, Conversation, Menu, Message, OAuthState, Post, Restaurant, SearchRecord, Upload, User, Visit, utcnow
 from main import app
+from scripts.migrate_admin import migrate
 from service import auth_service, chat_service, restaurant_service
 from service.restaurant_service import menu_combination, opening_status
 
@@ -106,6 +109,11 @@ class ServiceTests(unittest.TestCase):
         return schema.model_validate(conditions)
       return schema.model_validate(ranked)
     return patch("service.chat_service.generate_structured", side_effect=generate)
+
+  def login_admin(self):
+    with self.engine.begin() as connection:
+      migrate(connection)
+    self.login(self.token)
 
   def test_profile_persists_and_nickname_validation(self):
     response = self.client.put("/api/me", json=self.profile())
@@ -535,6 +543,9 @@ class ServiceTests(unittest.TestCase):
     self.assertIsNone(updated["messages"][-1]["recommendations"][0]["distance_metres"])
 
   def test_oauth_signup_repeat_nickname_state_and_logout(self):
+    with self.factory() as db:
+      db.execute(delete(User))
+      db.commit()
     configured = replace(settings, kakao_rest_api_key="test-key")
     with patch("service.auth_service.settings", configured), patch("service.auth_service.kakao_identity", return_value=("999", "walk@example.com")):
       url = self.client.get("/api/auth/kakao/authorize").json()["authorization_url"]
@@ -543,6 +554,7 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual(response.status_code, 303)
       self.assertTrue(response.headers["location"].endswith("/onboarding/address"))
       user = self.client.get("/api/auth/me").json()
+      self.assertEqual(user["role"], "ADMIN")
       nickname = user["nickname"]
       self.assertTrue(nickname)
       self.assertTrue(user["address_setup_pending"])
@@ -558,12 +570,187 @@ class ServiceTests(unittest.TestCase):
       state = httpx.URL(url).params["state"]
       returning = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertTrue(returning.headers["location"].endswith("/explore"))
-      self.assertEqual(self.client.get("/api/auth/me").json()["nickname"], nickname)
+      returning_user = self.client.get("/api/auth/me").json()
+      self.assertEqual(returning_user["nickname"], nickname)
+      self.assertEqual(returning_user["role"], "ADMIN")
       replay = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertIn("login_error", replay.headers["location"])
     with self.factory() as db:
       self.assertEqual(db.scalar(select(func.count()).select_from(User).where(User.kakao_id == "999")), 1)
       self.assertIsNone(db.get(AuthSession, self.client.cookies.get("nowon_session")))
+
+  def test_concurrent_signups_assign_exactly_one_admin(self):
+    with self.factory() as db:
+      db.execute(delete(User))
+      db.commit()
+    barrier = Barrier(4)
+
+    def signup(identity):
+      with self.factory() as db:
+        get = db.get
+
+        def observe_assignment(model, *args, **kwargs):
+          assignment = get(model, *args, **kwargs)
+          barrier.wait(timeout=10)
+          db.get = get
+          return assignment
+
+        db.get = observe_assignment
+        user = auth_service.find_or_create_user(db, identity)
+        return user.id, user.role
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+      accounts = list(workers.map(signup, ["300", "400", "500", "600"]))
+    self.assertCountEqual([role for _, role in accounts], ["ADMIN", "USER", "USER", "USER"])
+    with self.factory() as db:
+      self.assertEqual(db.get(AdminAssignment, 1).user_id, next(identity for identity, role in accounts if role == "ADMIN"))
+      self.assertEqual(auth_service.find_or_create_user(db, "700").role, "USER")
+
+  def test_migration_uses_earliest_signup_once(self):
+    with self.factory() as db:
+      db.get(User, self.other_id).created_at = utcnow() - timedelta(days=30)
+      db.commit()
+    with self.engine.begin() as connection:
+      migrate(connection)
+    with self.factory() as db:
+      self.assertEqual(db.get(AdminAssignment, 1).user_id, self.other_id)
+      self.assertEqual(db.get(User, self.other_id).role, "ADMIN")
+      user = db.get(User, self.user_id)
+      self.assertEqual(user.role, "USER")
+      user.created_at = utcnow() - timedelta(days=60)
+      db.commit()
+    with self.engine.begin() as connection:
+      migrate(connection)
+    with self.factory() as db:
+      self.assertEqual(db.get(AdminAssignment, 1).user_id, self.other_id)
+      self.assertEqual(db.get(User, self.user_id).role, "USER")
+
+  def test_admin_routes_require_role_and_role_is_read_only(self):
+    routes = [
+      ("GET", "dashboard", None), ("GET", "prompts/conditions", None), ("GET", "prompts/ranking/versions/1", None),
+      ("PUT", "prompts/conditions", {"content": "test", "expected_version": 1}),
+      ("POST", "prompts/ranking/restore", {"version": 1, "expected_version": 1}),
+      ("GET", "users", None), ("PUT", f"users/{self.user_id}", self.profile()), ("DELETE", f"users/{self.user_id}", None),
+      ("GET", "restaurants", None), ("GET", f"restaurants/{self.restaurant_id}/deletion-impact", None),
+      ("PUT", f"restaurants/{self.restaurant_id}", {"name": "식탁", "address": "서울 노원구", "area": "공릉동", "category": "한식"}),
+      ("DELETE", f"restaurants/{self.restaurant_id}", {"review_count": 0, "visit_count": 0, "menu_count": 2}),
+    ]
+    self.login_admin()
+    self.assertEqual(self.client.put("/api/me", json=self.profile(role="USER")).status_code, 422)
+    self.assertEqual(self.client.put(f"/api/admin/users/{self.other_id}", json=self.profile(role="ADMIN")).status_code, 422)
+    self.assertEqual(self.client.delete(f"/api/admin/users/{self.user_id}").status_code, 409)
+    for token, status in ((None, 401), (self.other_token, 403)):
+      self.client.cookies.clear()
+      if token:
+        self.login(token)
+      for method, path, data in routes:
+        with self.subTest(method=method, path=path, status=status):
+          self.assertEqual(self.client.request(method, "/api/admin/" + path, json=data).status_code, status)
+
+  @patch("service.chat_service.get_client", return_value=object())
+  def test_admin_prompt_validation_applies_to_chat_and_restores(self, _client):
+    self.login_admin()
+    prefix = "/api/admin/prompts/"
+    defaults = {name: self.client.get(prefix + name).json()["content"] for name in ("conditions", "ranking")}
+    for name, content in defaults.items():
+      with self.subTest(name=name):
+        self.assertEqual(self.client.put(prefix + name, json={"content": "JSON 객체로 답하세요.", "expected_version": 1}).status_code, 422)
+        response = self.client.put(prefix + name, json={"content": content.replace("JSON", "텍스트"), "expected_version": 1})
+        self.assertEqual(response.status_code, 422, response.text)
+        updated = content + "\n추가 조건은 한 문장으로 검토하세요."
+        response = self.client.put(prefix + name, json={"content": updated, "expected_version": 1})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row["version"] for row in response.json()["history"]], [2, 1])
+        self.assertEqual(self.client.put(prefix + name, json={"content": updated, "expected_version": 1}).status_code, 409)
+        self.assertEqual(self.client.get(prefix + name + "/versions/1").json()["content"], content)
+    self.login(self.other_token)
+    with self.ai() as generate:
+      response = self.client.post("/api/chat", json={"message": "공릉동에서 찌개를 먹고 싶어요."})
+      self.assertEqual(response.status_code, 200, response.text)
+      self.assertEqual([call.args[1] for call in generate.call_args_list], [content + "\n추가 조건은 한 문장으로 검토하세요." for content in defaults.values()])
+    self.login_admin()
+    for name in defaults:
+      response = self.client.post(prefix + name + "/restore", json={"version": 1, "expected_version": 2})
+      self.assertEqual(response.status_code, 200, response.text)
+      self.assertEqual(response.json()["version"], 3)
+      self.assertEqual(response.json()["history"][0]["restored_from"], 1)
+    with self.ai() as generate:
+      self.assertEqual(self.client.post("/api/chat", json={"message": "공릉동에서 찌개를 먹고 싶어요."}).status_code, 200)
+      self.assertEqual([call.args[1] for call in generate.call_args_list], list(defaults.values()))
+    stats = self.client.get("/api/admin/dashboard").json()
+    self.assertEqual(stats["totals"]["search_requests"], 2)
+    self.assertEqual([row["action"] for row in stats["actions"]], ["prompt_restore", "prompt_restore", "prompt_update", "prompt_update"])
+
+  def test_admin_restaurant_and_community_management_retains_linked_records(self):
+    self.login(self.other_token)
+    photo = self.image()
+    date_string = date.today().isoformat()
+    visit = self.client.post("/api/me/visits", json={"restaurant_id": self.restaurant_id, "visited_on": date_string}).json()
+    review_data = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on=date_string, visit_id=visit["id"])
+    review = self.client.post("/api/posts", json=review_data).json()
+    experience = self.client.post("/api/posts", json=self.post(photo_ids=[photo])).json()
+    self.login_admin()
+    with self.factory() as db:
+      db.get(User, self.other_id).created_at = utcnow() - timedelta(days=12)
+      db.get(Restaurant, self.restaurant_id).external_id = "kakao:1"
+      db.commit()
+    for days, new_users in ((7, 1), (30, 2)):
+      stats = self.client.get(f"/api/admin/dashboard?days={days}").json()
+      self.assertEqual(len(stats["trend"]), days)
+      self.assertEqual(stats["totals"], {"users": 2, "new_users": new_users, "experiences": 1, "reviews": 1, "restaurants": 1, "search_requests": 0})
+      self.assertEqual(sum(row["reviews"] for row in stats["trend"]), 1)
+    path = f"/api/admin/restaurants/{self.restaurant_id}"
+    self.assertEqual(self.client.get("/api/admin/restaurants", params={"query": "공릉", "size": 1}).json()["total"], 1)
+    restaurant = {"name": "관리자 수정 식탁", "address": "서울 노원구 공릉동 1", "area": "공릉동", "category": "한식", "phone": "02-123-4567"}
+    self.assertEqual(self.client.put(path, json=restaurant).json()["name"], restaurant["name"])
+    place = {"id": "1", "place_name": "카카오 식탁", "category_group_code": "FD6", "road_address_name": "서울 노원구 공릉동 1", "y": "37.62", "x": "127.07"}
+    with self.factory() as db, patch("service.restaurant_service.query_kakao", return_value=[place]):
+      self.assertEqual(restaurant_service.sync_kakao(db, "공릉동 식당", None, None), {self.restaurant_id})
+      db.commit()
+      self.assertEqual(db.get(Restaurant, self.restaurant_id).name, restaurant["name"])
+    scope = self.client.get(path + "/deletion-impact").json()
+    self.assertEqual(scope, {"review_count": 1, "visit_count": 1, "menu_count": 2})
+    self.assertEqual(self.client.request("DELETE", path, json={**scope, "review_count": 0}).status_code, 409)
+    self.assertEqual(self.client.request("DELETE", path, json=scope).status_code, 204)
+    self.assertEqual(self.client.get("/api/admin/restaurants").json()["total"], 0)
+    self.assertEqual(self.client.get(f"/api/restaurants/{self.restaurant_id}").status_code, 404)
+    self.assertEqual(self.client.get("/api/restaurants").json(), [])
+    self.assertEqual(self.client.get(f"/api/posts/{review['id']}").json()["restaurant_name"], restaurant["name"])
+    with self.factory() as db, patch("service.restaurant_service.query_kakao", return_value=[place]):
+      self.assertEqual(restaurant_service.sync_kakao(db, "공릉동 식당", None, None), set())
+      self.assertEqual(db.scalar(select(func.count(Menu.id)).where(Menu.restaurant_id == self.restaurant_id)), 2)
+    self.login(self.other_token)
+    self.assertEqual(self.client.get("/api/me/visits").json()["total"], 1)
+    self.assertEqual(self.client.post("/api/posts", json=review_data).status_code, 404)
+    self.assertEqual(self.client.post("/api/me/visits", json={"restaurant_id": self.restaurant_id, "visited_on": date_string}).status_code, 404)
+    self.login_admin()
+    for post in (review, experience):
+      self.assertEqual(self.client.delete(f"/api/posts/{post['id']}").status_code, 204)
+    self.assertEqual(self.client.get("/api/uploads/" + photo).status_code, 404)
+    stats = self.client.get("/api/admin/dashboard").json()
+    self.assertEqual([stats["totals"][key] for key in ("experiences", "reviews", "restaurants")], [0, 0, 0])
+    self.assertEqual([row["action"] for row in stats["actions"]], ["post_delete", "post_delete", "restaurant_delete"])
+
+  def test_admin_user_search_updates_and_deletes_account(self):
+    self.login_admin()
+    path = "/api/admin/users"
+    page = self.client.get(path, params={"page": 2, "size": 1}).json()
+    self.assertEqual((page["pages"], page["items"][0]["id"]), (2, self.user_id))
+    self.assertEqual(self.client.get(path, params={"query": "%"}).json()["total"], 0)
+    self.assertEqual(self.client.get(path, params={"query": "상계"}).json()["items"][0]["id"], self.other_id)
+    self.assertEqual(self.client.put(f"{path}/{self.other_id}", json=self.profile()).json()["nickname"], self.profile()["nickname"])
+    self.login(self.other_token)
+    photo = self.image()
+    self.assertEqual(self.client.post("/api/posts", json=self.post(photo_ids=[photo])).status_code, 201)
+    self.login_admin()
+    self.assertEqual(self.client.delete(f"{path}/{self.other_id}").status_code, 204)
+    self.assertEqual(self.client.get(path).json()["total"], 1)
+    stats = self.client.get("/api/admin/dashboard").json()
+    self.assertEqual(stats["totals"]["experiences"], 0)
+    self.assertEqual(stats["actions"][0]["action"], "user_delete")
+    self.assertEqual(list(Path(self.media_directory.name).iterdir()), [])
+    self.login(self.other_token)
+    self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
 
   def test_kakao_real_http_contract_and_trusted_identity(self):
     requests = []

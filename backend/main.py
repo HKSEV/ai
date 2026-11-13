@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 
 from config.settings import settings
-from controller import auth_controller, chat_controller, community_controller, media_controller, profile_controller, restaurant_controller
+from controller import admin_controller, auth_controller, chat_controller, community_controller, media_controller, profile_controller, restaurant_controller
 from service.auth_service import SESSION_COOKIE
 
 
@@ -62,7 +62,7 @@ def status():
   }
 
 
-for controller in [auth_controller, chat_controller, community_controller, profile_controller, restaurant_controller, media_controller]:
+for controller in [auth_controller, chat_controller, community_controller, profile_controller, restaurant_controller, media_controller, admin_controller]:
   app.include_router(controller.router)
 
 

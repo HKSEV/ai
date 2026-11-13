@@ -1,6 +1,6 @@
 const { JSDOM } = require("jsdom");
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost:3000" });
-for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLDialogElement", "Event", "KeyboardEvent", "MouseEvent", "MutationObserver", "File", "FileList"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLDialogElement", "Event", "KeyboardEvent", "MouseEvent", "MutationObserver", "FormData", "File", "FileList"]) {
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true, writable: true });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,7 +38,7 @@ for (const ext of [".ts", ".tsx"]) {
 const { makeStore } = require("../src/store/store.ts");
 const { setUser, clearUser } = require("../src/store/authSlice.ts");
 const ToastProvider = require("../src/components/ui/ToastProvider.tsx").default;
-const user = { id: 1, nickname: "공릉미식가", preferences: ["한식"], budget_min: 10000, budget_max: 20000, created_at: "2026-11-01T00:00:00+00:00" };
+const user = { id: 1, nickname: "공릉미식가", role: "USER", preferences: ["한식"], budget_min: 10000, budget_max: 20000, created_at: "2026-11-01T00:00:00+00:00" };
 const page = (items = []) => ({ items, page: 1, pages: items.length ? 1 : 0, total: items.length });
 let calls = [];
 function response(data, status = 200) {
@@ -139,12 +139,14 @@ test("profile saves preferences and updates shared nickname", async () => {
   };
   const ProfileForm = require("../src/components/mypage/ProfileForm.tsx").default;
   const store = setup(ProfileForm, { user });
+  assert.equal(screen.getByLabelText("계정 역할").readOnly, true);
   fireEvent.change(screen.getByLabelText(/산책 닉네임/), { target: { value: "노원한입탐험가" } });
   fireEvent.click(screen.getByRole("button", { name: "일식" }));
   fireEvent.click(screen.getByRole("button", { name: "취향 저장하기" }));
   await waitFor(() => assert.equal(store.getState().auth.user.nickname, "노원한입탐험가"));
   assert.deepEqual(store.getState().auth.user.preferences, ["한식", "일식"]);
   assert.equal(calls[0].url, "/api/me");
+  assert.equal(Object.hasOwn(JSON.parse(calls[0].options.body), "role"), false);
 });
 
 test("address form saves a confirmed map point through the private endpoint", async () => {

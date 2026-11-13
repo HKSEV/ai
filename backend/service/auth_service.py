@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from config.database import get_db
 from config.settings import settings
-from entity.models import AuthSession, OAuthState, User, utcnow
+from entity.models import ADMIN, USER, AdminAssignment, AuthSession, OAuthState, User, utcnow
 
 
 SESSION_COOKIE = "nowon_session"
@@ -87,9 +87,15 @@ def find_or_create_user(db, kakao_id, email=None):
         db.commit()
       return user
     nickname = random_nickname()
-    user = User(kakao_id=kakao_id, email=email, address_setup_pending=True, nickname=nickname, nickname_key=nickname_key(nickname))
+    first_signup = db.get(AdminAssignment, 1) is None
+    user = User(kakao_id=kakao_id, email=email, address_setup_pending=True, nickname=nickname,
+                nickname_key=nickname_key(nickname), role=ADMIN if first_signup else USER)
     db.add(user)
     try:
+      if first_signup:
+        # The singleton key and user row commit together. A competing signup retries as USER.
+        db.flush()
+        db.add(AdminAssignment(id=1, user_id=user.id))
       db.commit()
       return user
     except IntegrityError:
@@ -117,4 +123,10 @@ def current_user(db=Depends(get_db), token: str | None = Cookie(default=None, al
   user = db.get(User, session.user_id)
   if user is None:
     raise HTTPException(401, "다시 로그인해 주세요.")
+  return user
+
+
+def current_admin(user=Depends(current_user)):
+  if user.role != ADMIN:
+    raise HTTPException(403, "관리자만 접근할 수 있습니다.")
   return user

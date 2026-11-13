@@ -10,12 +10,13 @@ from fastapi import HTTPException
 from google.genai import errors, types
 from sqlalchemy import func, select
 
-from config.gemini import CONDITION_PROMPT, RANKING_PROMPT, get_client
+from config.gemini import get_client
 from config.settings import settings
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import Address, Conversation, Message, Post, Restaurant, SearchRecord, Visit, utcnow
 from service.common import owned, timestamp
 from service.kakao_navigation import geocode_origin, travel_times
+from service.prompt_service import active_prompts
 from service.restaurant_service import find_candidates, order_estimate, visit_schedule
 
 
@@ -203,7 +204,7 @@ def recommendation_reply(items):
   return "\n\n".join(paragraphs)
 
 
-def recommend(client, candidates, conditions, profile, latitude, longitude, departure):
+def recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompt):
   current = {row["id"]: prepare_candidate(row, conditions) for row in candidates}
   budget = conditions.get("budget_total")
   current = {identity: row for identity, row in current.items()
@@ -211,7 +212,7 @@ def recommend(client, candidates, conditions, profile, latitude, longitude, depa
   if not current:
     return [], []
   options = {identity: reason_options(row, conditions) for identity, row in current.items()}
-  ranked = generate_structured(client, RANKING_PROMPT, {
+  ranked = generate_structured(client, prompt, {
     "conditions": conditions, "profile": profile,
     "candidates": [{
       "id": row["id"], "name": row["name"], "address": row["address"], "category": row["category"],
@@ -255,6 +256,7 @@ def chat(db, user, data):
   recent = db.scalar(select(func.count()).select_from(SearchRecord).where(SearchRecord.user_id == user.id, SearchRecord.created_at >= utcnow() - timedelta(minutes=1)))
   if recent >= 10:
     raise HTTPException(429, "잠시 쉬었다가 다시 이야기해 주세요.")
+  prompts = active_prompts(db)
   conversation = owned(db, Conversation, data.conversation_id, user.id) if data.conversation_id else Conversation(user_id=user.id, title=data.message[:40], conditions={})
   history = db.scalars(select(Message).where(Message.conversation_id == conversation.id).order_by(Message.id.desc()).limit(8)).all() if conversation.id else []
   origin_text, latitude, longitude = data.origin_text, data.latitude, data.longitude
@@ -277,7 +279,7 @@ def chat(db, user, data):
     origin_text = previous_origin["label"]
     latitude, longitude = previous_origin["latitude"], previous_origin["longitude"]
   profile = personal_context(db, user)
-  update = generate_structured(client, CONDITION_PROMPT, {
+  update = generate_structured(client, prompts["conditions"], {
     "message": data.message, "history": [{"role": row.role, "content": row.content} for row in reversed(history)],
     "previous": previous, "profile": profile, "origin": origin_text,
     "coordinates_provided": latitude is not None, "now": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
@@ -315,7 +317,7 @@ def chat(db, user, data):
     if not candidates:
       reply = "조건에 맞는 등록 음식점을 찾지 못했어요. 지역이나 음식 종류를 조금 넓혀 주세요."
     else:
-      recommendations, stored = recommend(client, candidates, conditions, profile, latitude, longitude, departure)
+      recommendations, stored = recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompts["ranking"])
       reply = recommendation_reply(recommendations)
   if notices:
     reply += "\n\n" + " ".join(notices)

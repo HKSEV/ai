@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/restaurants", tags=["restaurants"])
 
 @router.get("")
 def restaurants(query: str = Query("", max_length=100), user=Depends(current_user), db=Depends(get_db)):
-  statement = select(Restaurant)
+  statement = select(Restaurant).where(Restaurant.deleted_at.is_(None))
   if not settings.include_demo:
     statement = statement.where(Restaurant.is_demo.is_(False))
   if query:
@@ -31,6 +31,6 @@ def reviewed_restaurants(ids: list[int] = Query(min_length=1, max_length=30), us
 @router.get("/{identity}")
 def detail(identity: int, user=Depends(current_user), db=Depends(get_db)):
   item = db.get(Restaurant, identity)
-  if item is None or (item.is_demo and not settings.include_demo):
+  if item is None or item.deleted_at or (item.is_demo and not settings.include_demo):
     raise HTTPException(404, "음식점을 찾을 수 없습니다.")
   return serialize_restaurant(db, item)

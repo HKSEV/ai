@@ -10,7 +10,7 @@ from service.upload_service import delete_unlinked_uploads
 
 def serialize_user(user):
   return {
-    "id": user.id, "nickname": user.nickname, "email": user.email,
+    "id": user.id, "nickname": user.nickname, "email": user.email, "role": user.role,
     "address_setup_pending": user.address_setup_pending, "preferences": user.preferences,
     "budget_min": user.budget_min, "budget_max": user.budget_max, "created_at": timestamp(user.created_at),
   }
@@ -91,7 +91,8 @@ def visits(db, user, page, size):
 
 def save_visit(db, user, data, identity=None):
   item = owned(db, Visit, identity, user.id) if identity else Visit(user_id=user.id)
-  if db.get(Restaurant, data.restaurant_id) is None:
+  restaurant = db.get(Restaurant, data.restaurant_id, with_for_update={"read": True})
+  if restaurant is None or (restaurant.deleted_at and item.restaurant_id != restaurant.id):
     raise HTTPException(404, "음식점을 찾을 수 없습니다.")
   if data.receipt_id:
     receipt = owned(db, Upload, data.receipt_id, user.id)

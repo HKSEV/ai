@@ -1,6 +1,19 @@
 -- MySQL 8.4 / utf8mb4. 기존 테이블 업그레이드는 백업 후 별도 마이그레이션이 필요합니다.
 
 
+CREATE TABLE admin_actions (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	actor_name VARCHAR(40) NOT NULL,
+	action VARCHAR(32) NOT NULL,
+	target_id VARCHAR(40) NOT NULL,
+	target_label VARCHAR(200) NOT NULL,
+	created_at DATETIME NOT NULL,
+	PRIMARY KEY (id)
+)
+
+;
+
+
 CREATE TABLE oauth_states (
 	state_hash VARCHAR(64) NOT NULL,
 	expires_at DATETIME NOT NULL,
@@ -10,6 +23,21 @@ CREATE TABLE oauth_states (
 ;
 
 CREATE INDEX ix_oauth_states_expires_at ON oauth_states (expires_at);
+
+
+CREATE TABLE prompt_revisions (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	name VARCHAR(24) NOT NULL,
+	version INTEGER NOT NULL,
+	content TEXT NOT NULL,
+	editor_name VARCHAR(40),
+	restored_from INTEGER,
+	created_at DATETIME,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_prompt_revisions_name_version UNIQUE (name, version)
+)
+
+;
 
 
 CREATE TABLE restaurants (
@@ -32,6 +60,8 @@ CREATE TABLE restaurants (
 	source_url VARCHAR(500),
 	checked_at DATETIME,
 	is_demo BOOL NOT NULL,
+	admin_edited_at DATETIME,
+	deleted_at DATETIME,
 	PRIMARY KEY (id),
 	UNIQUE (external_id)
 )
@@ -50,7 +80,9 @@ CREATE TABLE users (
 	budget_min INTEGER,
 	budget_max INTEGER,
 	created_at DATETIME NOT NULL,
+	`role` VARCHAR(5) NOT NULL DEFAULT 'USER',
 	PRIMARY KEY (id),
+	CONSTRAINT ck_users_role CHECK (role IN ('ADMIN', 'USER')),
 	UNIQUE (kakao_id),
 	UNIQUE (nickname_key)
 )
@@ -75,6 +107,18 @@ CREATE TABLE addresses (
 CREATE INDEX ix_addresses_user_id ON addresses (user_id);
 
 
+CREATE TABLE admin_assignment (
+	id INTEGER NOT NULL,
+	user_id INTEGER NOT NULL,
+	PRIMARY KEY (id),
+	CONSTRAINT ck_admin_assignment_id CHECK (id = 1),
+	UNIQUE (user_id),
+	FOREIGN KEY(user_id) REFERENCES users (id)
+)
+
+;
+
+
 CREATE TABLE auth_sessions (
 	token_hash VARCHAR(64) NOT NULL,
 	user_id INTEGER NOT NULL,
@@ -86,9 +130,9 @@ CREATE TABLE auth_sessions (
 
 ;
 
-CREATE INDEX ix_auth_sessions_user_id ON auth_sessions (user_id);
-
 CREATE INDEX ix_auth_sessions_expires_at ON auth_sessions (expires_at);
+
+CREATE INDEX ix_auth_sessions_user_id ON auth_sessions (user_id);
 
 
 CREATE TABLE conversations (
@@ -218,10 +262,10 @@ CREATE TABLE posts (
 
 ;
 
-CREATE INDEX ix_posts_user_id ON posts (user_id);
-
-CREATE INDEX ix_posts_restaurant_kind ON posts (restaurant_id, kind);
-
 CREATE INDEX ix_posts_created_at ON posts (created_at);
 
 CREATE INDEX ix_posts_kind ON posts (kind);
+
+CREATE INDEX ix_posts_restaurant_kind ON posts (restaurant_id, kind);
+
+CREATE INDEX ix_posts_user_id ON posts (user_id);

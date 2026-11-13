@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useSelector } from "react-redux";
-import { LuLeaf } from "react-icons/lu";
+import { LuArrowUpRight, LuLeaf } from "react-icons/lu";
 import type { RootState } from "@/store/store";
 import ProfileForm from "./ProfileForm";
 import AddressManager from "./AddressManager";
@@ -18,6 +19,9 @@ export default function MyPage() {
           <span className="eyebrow text-[.65rem] mobile:text-[.5rem]">MY LITTLE FOOD JOURNEY</span>
           <h1 className="my-[.4rem] text-[1.85rem] wrap-anywhere mobile:text-[1.35rem]">{user.nickname}님의 산책</h1>
           <p className="text-[.82rem] text-muted mobile:text-[.72rem]">취향을 다듬고, 맛있었던 순간을 모아보세요.</p>
+          {user.role === "ADMIN" && <nav className="mt-3" aria-label="계정 메뉴">
+            <Link className="button button-secondary button-small" href="/admin"><LuArrowUpRight />관리자 페이지</Link>
+          </nav>}
         </div>
       </div>
       <div className="grid grid-cols-2 items-start gap-6 tablet:gap-4 mobile:grid-cols-1 mobile:gap-[1.2rem]">

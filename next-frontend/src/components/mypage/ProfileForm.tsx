@@ -6,25 +6,19 @@ import { api, errorMessage, json } from "@/app/lib/api";
 import type { User } from "@/app/types/Service";
 import { setUser } from "@/store/authSlice";
 import { useToast } from "@/components/ui/ToastProvider";
-
-const categories = ["한식", "일식", "중식", "양식", "분식", "고기", "해산물", "카페", "채식"];
-const amountInput = "flex items-center gap-2 rounded-[.7rem] border border-line pr-[.8rem]";
-const amountUnit = "text-[.7rem] font-normal whitespace-nowrap text-muted";
+import ProfileFields, { readProfileFields } from "./ProfileFields";
 
 export default function ProfileForm({ user }: { user: User }) {
-  const [nickname, setNickname] = useState(user.nickname);
-  const [preferences, setPreferences] = useState(user.preferences);
-  const [min, setMin] = useState(user.budget_min?.toString() || "");
-  const [max, setMax] = useState(user.budget_max?.toString() || "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const dispatch = useDispatch();
   const toast = useToast();
-  const save = async (event: FormEvent) => {
+  const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const data = readProfileFields(event.currentTarget);
     setPending(true); setError("");
     try {
-      const response = await api<User>("/api/me", json("PUT", { nickname, preferences, budget_min: min ? Number(min) : null, budget_max: max ? Number(max) : null }));
+      const response = await api<User>("/api/me", json("PUT", data));
       dispatch(setUser(response)); toast("취향과 닉네임을 저장했어요.");
     } catch (error) { setError(errorMessage(error)); }
     finally { setPending(false); }
@@ -32,24 +26,7 @@ export default function ProfileForm({ user }: { user: User }) {
   return (
     <form className="surface form-stack" onSubmit={save}>
       <div className="section-heading"><h2 className="section-title">나의 취향</h2><span className="badge">산책 프로필</span></div>
-      <label>카카오계정 이메일<input className="field" type="text" readOnly value={user.email || "미제공"} /></label>
-      <label>산책 닉네임<input className="field" required minLength={2} maxLength={20} pattern="[가-힣a-zA-Z0-9_]+" value={nickname} onChange={(event) => setNickname(event.target.value)} /><span className="helper">한글·영문·숫자·밑줄 2~20자 · 중복된 닉네임은 사용할 수 없어요.</span></label>
-      <fieldset>
-        <legend>좋아하는 음식</legend>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((category) => <button type="button" aria-pressed={preferences.includes(category)}
-                                                 className="min-h-[38px] rounded-full border border-line px-[.9rem] py-[.4rem] text-[.78rem] aria-pressed:border-[#dcb3a2] aria-pressed:bg-coral-soft aria-pressed:text-[#a8583d]"
-                                                 key={category} onClick={() => setPreferences(preferences.includes(category) ? preferences.filter((item) => item !== category) : [...preferences, category])}>{category}</button>)}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>편안한 가격대 <small>(1인 기준)</small></legend>
-        <div className="two-fields">
-          <label><span className="sr-only">최소 가격</span><div className={amountInput}><input className="field border-0 bg-transparent" type="number" min={0} max={1000000} step={1000} value={min} onChange={(event) => setMin(event.target.value)} placeholder="최소 금액" /><span className={amountUnit}>원부터</span></div></label>
-          <label><span className="sr-only">최대 가격</span><div className={amountInput}><input className="field border-0 bg-transparent" type="number" min={1000} max={1000000} step={1000} value={max} onChange={(event) => setMax(event.target.value)} placeholder="최대 금액" /><span className={amountUnit}>원까지</span></div></label>
-        </div>
-        <p className="helper">인원수가 정해지면 추천 기본 예산에 반영합니다.</p>
-      </fieldset>
+      <ProfileFields user={user} />
       {error && <p className="inline-error" role="alert">{error}</p>}
       <button className="button button-primary" type="submit" disabled={pending}>{pending ? "저장 중…" : "취향 저장하기"}</button>
     </form>

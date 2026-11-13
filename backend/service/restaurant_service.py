@@ -4,7 +4,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from config.settings import settings
 from entity.models import Menu, Post, Restaurant, utcnow
@@ -222,20 +222,24 @@ def sync_kakao(db, query, latitude, longitude, radius_metres=None):
       continue
     external_id = "kakao:" + str(data["id"])
     item = db.scalar(select(Restaurant).where(Restaurant.external_id == external_id))
-    if not item:
-      item = Restaurant(external_id=external_id)
+    if item and item.deleted_at:
+      continue
+    values = {
+      "name": data["place_name"][:150], "address": address[:300],
+      "area": (data.get("address_name") or address).replace("서울 ", "").replace("노원구 ", "")[:100],
+      "category": (data.get("category_name") or "음식점")[:100],
+      "phone": (data.get("phone") or "").strip()[:40] or None,
+      "latitude": lat, "longitude": lng, "source": "카카오 로컬 검색",
+      "source_url": "https://place.map.kakao.com/" + str(data["id"]), "checked_at": utcnow(), "is_demo": False,
+    }
+    if item is None:
+      item = Restaurant(external_id=external_id, **values)
       db.add(item)
-    item.name = data["place_name"][:150]
-    item.address = address[:300]
-    item.area = (data.get("address_name") or address).replace("서울 ", "").replace("노원구 ", "")[:100]
-    item.category = (data.get("category_name") or "음식점")[:100]
-    item.phone = (data.get("phone") or "").strip()[:40] or None
-    item.latitude, item.longitude = lat, lng
-    item.source = "카카오 로컬 검색"
-    item.source_url = "https://place.map.kakao.com/" + str(data["id"])
-    item.checked_at = utcnow()
-    # This API provides no opening hours or menu prices. Preserve their independent provenance.
-    item.is_demo = False
+    elif not item.admin_edited_at:
+      # Evaluate these conditions at write time as an administrator may have just edited or removed this place.
+      db.execute(update(Restaurant).where(
+        Restaurant.id == item.id, Restaurant.deleted_at.is_(None), Restaurant.admin_edited_at.is_(None),
+      ).values(**values))
     synced.append(item)
   db.flush()
   return {item.id for item in synced}
@@ -262,7 +266,7 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
       notices.append("외부 음식점 조회가 지연되어 저장된 데이터로 탐색했습니다.")
   else:
     notices.append("외부 음식점 검색이 미연동되어 등록된 데이터에서 탐색합니다.")
-  query = select(Restaurant)
+  query = select(Restaurant).where(Restaurant.deleted_at.is_(None))
   if not settings.include_demo:
     query = query.where(Restaurant.is_demo.is_(False))
   if radius_metres:

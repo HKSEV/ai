@@ -6,9 +6,7 @@ from config.database import get_db
 from dto.community import PostInput
 from entity.models import Post
 from service.auth_service import current_user
-from service.common import owned
 from service import community_service as service
-from service.upload_service import delete_unlinked_uploads
 
 
 router = APIRouter(prefix="/api/posts", tags=["community"])
@@ -39,8 +37,4 @@ def update_post(identity: int, data: PostInput, user=Depends(current_user), db=D
 
 @router.delete("/{identity}", status_code=204)
 def delete_post(identity: int, user=Depends(current_user), db=Depends(get_db)):
-  item = owned(db, Post, identity, user.id)
-  photos = item.photo_ids
-  db.delete(item)
-  db.commit()
-  delete_unlinked_uploads(db, photos, user.id)
+  service.delete_post(db, user, identity)

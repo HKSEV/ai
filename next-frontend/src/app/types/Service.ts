@@ -2,6 +2,7 @@ export interface User {
   id: number;
   nickname: string;
   email: string | null;
+  role: "ADMIN" | "USER";
   address_setup_pending: boolean;
   preferences: string[];
   budget_min: number | null;
