@@ -5,7 +5,12 @@ import { hasCoordinates, type KakaoMarker } from "@/app/lib/kakaoMap";
 import type { Restaurant } from "@/app/types/Service";
 import useKakaoMap from "@/components/map/useKakaoMap";
 
-export default function RestaurantMap({ answerId, restaurants, selected, onSelect }: {
+export default function RestaurantMap({
+  answerId,
+  restaurants,
+  selected,
+  onSelect
+}: {
   answerId: number;
   restaurants: Restaurant[];
   selected: { id: number } | null;
@@ -47,7 +52,8 @@ export default function RestaurantMap({ answerId, restaurants, selected, onSelec
     if (!item || !marker) return;
     const { map, maps } = instance;
     const content = document.createElement("div");
-    content.className = "grid max-w-56 gap-[.2rem] py-[.55rem] pr-[1.65rem] pl-[.65rem] text-xs leading-[1.5] whitespace-normal text-navy";
+    content.className =
+      "grid max-w-56 gap-[.2rem] py-[.55rem] pr-[1.65rem] pl-[.65rem] text-xs leading-[1.5] whitespace-normal text-navy";
     const name = document.createElement("strong");
     const address = document.createElement("span");
     name.textContent = item.name;
@@ -59,8 +65,26 @@ export default function RestaurantMap({ answerId, restaurants, selected, onSelec
     return () => info.close();
   }, [instance, restaurants, selected]);
 
-  return <div className="mb-3">
-    <div ref={element} className="map-surface h-60" role="region" aria-label="추천 음식점 지도" hidden={!!error} />
-    {error ? <p className="helper" role="status">{error}</p> : !instance && <p className="helper" role="status">지도를 불러오는 중입니다.</p>}
-  </div>;
+  return (
+    <div className="mb-3">
+      <div
+        ref={element}
+        className="map-surface h-60"
+        role="region"
+        aria-label="추천 음식점 지도"
+        hidden={!!error}
+      />
+      {error ? (
+        <p className="helper" role="status">
+          {error}
+        </p>
+      ) : (
+        !instance && (
+          <p className="helper" role="status">
+            지도를 불러오는 중입니다.
+          </p>
+        )
+      )}
+    </div>
+  );
 }

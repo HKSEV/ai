@@ -14,21 +14,38 @@ const pages = {
   overview: Dashboard,
   ai: PromptManager,
   users: UserManager,
-  restaurants: RestaurantManager,
+  restaurants: RestaurantManager
 };
 
-export default async function AdminPage({ params }: { params: Promise<{ section?: string[] }> }) {
+export default async function AdminPage({
+  params
+}: {
+  params: Promise<{ section?: string[] }>;
+}) {
   const store = await cookies();
   const session = store.get("nowon_session");
   if (!session) redirect("/");
-  const backend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+  const backend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(
+    /\/$/,
+    ""
+  );
   const response = await fetch(backend + "/api/auth/me", {
     headers: { Cookie: "nowon_session=" + encodeURIComponent(session.value) },
-    cache: "no-store", signal: AbortSignal.timeout(6000),
+    cache: "no-store",
+    signal: AbortSignal.timeout(6000)
   }).catch(() => null);
   if (response?.status === 401) redirect("/");
-  const user: User | null = response?.ok ? await response.json().catch(() => null) : null;
-  if (!user) return <main className="content-page"><p className="inline-error" role="alert">로그인 상태를 확인하지 못했습니다. 잠시 후 새로고침해 주세요.</p></main>;
+  const user: User | null = response?.ok
+    ? await response.json().catch(() => null)
+    : null;
+  if (!user)
+    return (
+      <main className="content-page">
+        <p className="inline-error" role="alert">
+          로그인 상태를 확인하지 못했습니다. 잠시 후 새로고침해 주세요.
+        </p>
+      </main>
+    );
   if (user.role !== "ADMIN") redirect("/mypage");
   if (user.address_setup_pending) redirect("/onboarding/address");
 
@@ -37,5 +54,9 @@ export default async function AdminPage({ params }: { params: Promise<{ section?
   if (section.length > 1 || !Object.hasOwn(pages, key)) notFound();
   if (section[0] === "overview") redirect("/admin");
   const Page = pages[key as keyof typeof pages];
-  return <AdminLayout><Page /></AdminLayout>;
+  return (
+    <AdminLayout>
+      <Page/>
+    </AdminLayout>
+  );
 }

@@ -77,15 +77,41 @@ export interface Restaurant extends RestaurantOption {
   source: string;
   source_url: string | null;
   checked_at: string | null;
-  hours?: (Partial<Record<Weekday, OpeningPeriod>> & { exceptions?: Record<string, OpeningPeriod> }) | null;
+  hours?:
+    | (Partial<Record<Weekday, OpeningPeriod>> & {
+        exceptions?: Record<string, OpeningPeriod>;
+      })
+    | null;
   closed_dates?: string[];
   hours_source: string | null;
   hours_source_url: string | null;
   hours_checked_at: string | null;
   opening: { label: string; basis: string; is_realtime: boolean };
   visit_schedule?: { date: string; basis: string; summary: string };
-  menus: { id: number; name: string; price: number | null; servings: number | null; available: boolean; source: string; source_url: string | null; checked_at: string | null; is_current: boolean }[];
-  menu_combination: { items: { menu_id?: number; name: string; price?: number; quantity: number; servings?: number | null }[]; total: number | null; per_person: number | null; party_size: number | null; basis: string } | null;
+  menus: {
+    id: number;
+    name: string;
+    price: number | null;
+    servings: number | null;
+    available: boolean;
+    source: string;
+    source_url: string | null;
+    checked_at: string | null;
+    is_current: boolean;
+  }[];
+  menu_combination: {
+    items: {
+      menu_id?: number;
+      name: string;
+      price?: number;
+      quantity: number;
+      servings?: number | null;
+    }[];
+    total: number | null;
+    per_person: number | null;
+    party_size: number | null;
+    basis: string;
+  } | null;
   recommended_menu?: string | null;
   distance_metres: number | null;
   distance_basis: string;

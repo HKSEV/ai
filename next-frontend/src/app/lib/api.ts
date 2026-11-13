@@ -1,5 +1,8 @@
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(
+    message: string,
+    public status: number
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -13,16 +16,24 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   let response: Response;
   try {
-    response = await fetch(path, { ...options, headers, credentials: "include", cache: "no-store" });
+    response = await fetch(path, {
+      ...options,
+      headers,
+      credentials: "include",
+      cache: "no-store"
+    });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error;
     throw new ApiError("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.", 0);
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const message = typeof body?.detail === "string" ? body.detail
-      : Array.isArray(body?.detail) ? body.detail.map((item: { msg: string }) => item.msg).join(" · ")
-      : "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
+    const message =
+      typeof body?.detail === "string"
+        ? body.detail
+        : Array.isArray(body?.detail)
+          ? body.detail.map((item: { msg: string }) => item.msg).join(" · ")
+          : "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
     if (response.status === 401 && typeof window !== "undefined") {
       window.dispatchEvent(new Event("auth:expired"));
     }

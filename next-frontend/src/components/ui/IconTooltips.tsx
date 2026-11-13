@@ -22,16 +22,29 @@ export default function IconTooltips() {
 
     const hide = () => {
       clearTimeout(timer);
-      if (tooltip.hidePopover && tooltip.matches(":popover-open")) tooltip.hidePopover();
+      if (tooltip.hidePopover && tooltip.matches(":popover-open"))
+        tooltip.hidePopover();
       tooltip.hidden = true;
     };
     const position = () => {
-      if (!active?.isConnected) { hide(); return; }
+      if (!active?.isConnected) {
+        hide();
+        return;
+      }
       const bounds = active.getBoundingClientRect();
-      if (bounds.bottom <= 0 || bounds.top >= window.innerHeight) { hide(); return; }
+      if (bounds.bottom <= 0 || bounds.top >= window.innerHeight) {
+        hide();
+        return;
+      }
       const width = tooltip.offsetWidth;
       const height = tooltip.offsetHeight;
-      const left = Math.max(8, Math.min(bounds.left + (bounds.width - width) / 2, window.innerWidth - width - 8));
+      const left = Math.max(
+        8,
+        Math.min(
+          bounds.left + (bounds.width - width) / 2,
+          window.innerWidth - width - 8
+        )
+      );
       const above = bounds.top - height - 7;
       tooltip.style.left = left + "px";
       tooltip.style.top = (above >= 8 ? above : bounds.bottom + 7) + "px";
@@ -66,11 +79,19 @@ export default function IconTooltips() {
       if (focused) hovered = null;
       update();
     };
-    const blur = () => { focused = null; update(); };
-    const dismiss = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { hovered = focused = null; update(); }
+    const blur = () => {
+      focused = null;
+      update();
     };
-    const reposition = () => { if (!tooltip.hidden) position(); };
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        hovered = focused = null;
+        update();
+      }
+    };
+    const reposition = () => {
+      if (!tooltip.hidden) position();
+    };
     document.addEventListener("pointerover", enter, true);
     document.addEventListener("pointerout", leave, true);
     document.addEventListener("focusin", focus);
@@ -89,5 +110,16 @@ export default function IconTooltips() {
       window.removeEventListener("scroll", reposition, true);
     };
   }, [pathname]);
-  return <div ref={ref} className="pointer-events-none fixed inset-auto z-110 m-0 w-max max-w-[calc(100vw-1rem)] rounded-[.4rem] border-0 bg-forest-dark px-[.55rem] pt-[.35rem] pb-[.28rem] text-[.7rem] leading-[1.45] text-white shadow-[0_3px_12px_#193e2e33]" role="tooltip" popover="manual" hidden />;
+  return (
+    <div
+      ref={ref}
+      className="pointer-events-none fixed inset-auto z-110 m-0 w-max
+      max-w-[calc(100vw-1rem)] rounded-[.4rem] border-0 bg-forest-dark px-[.55rem]
+      pt-[.35rem] pb-[.28rem] text-[.7rem] leading-[1.45] text-white
+      shadow-[0_3px_12px_#193e2e33]"
+      role="tooltip"
+      popover="manual"
+      hidden
+    />
+  );
 }

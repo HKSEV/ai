@@ -5,7 +5,11 @@ import { locationSupported, NOWON_STATION, type KakaoLatLng } from "@/app/lib/ka
 import type { MapLocation } from "@/app/types/Service";
 import useKakaoMap from "./useKakaoMap";
 
-export default function AddressMapPicker({ initial, location, onChange }: {
+export default function AddressMapPicker({
+  initial,
+  location,
+  onChange
+}: {
   initial: MapLocation | null;
   location: MapLocation | null;
   onChange: (location: MapLocation | null) => void;
@@ -19,7 +23,12 @@ export default function AddressMapPicker({ initial, location, onChange }: {
     const center = initial || NOWON_STATION;
     const position = new maps.LatLng(center.latitude, center.longitude);
     map.setCenter(position);
-    const marker = new maps.Marker({ map, position, draggable: true, title: "선택한 주소 위치" });
+    const marker = new maps.Marker({
+      map,
+      position,
+      draggable: true,
+      title: "선택한 주소 위치"
+    });
     const geocoder = new maps.services.Geocoder();
     let request = 0;
     const select = (position: KakaoLatLng) => {
@@ -34,13 +43,23 @@ export default function AddressMapPicker({ initial, location, onChange }: {
         return;
       }
       setLookingUp(true);
-      geocoder.coord2Address(coordinates.longitude, coordinates.latitude, (result, status) => {
-        if (current !== request) return;
-        setLookingUp(false);
-        const address = result?.[0]?.road_address?.address_name || result?.[0]?.address?.address_name;
-        if (status === maps.services.Status.OK && address) onChange({ address, ...coordinates });
-        else setLookupError("주소를 찾지 못했습니다. 지도에서 다른 지점을 선택해 주세요.");
-      });
+      geocoder.coord2Address(
+        coordinates.longitude,
+        coordinates.latitude,
+        (result, status) => {
+          if (current !== request) return;
+          setLookingUp(false);
+          const address =
+            result?.[0]?.road_address?.address_name ||
+            result?.[0]?.address?.address_name;
+          if (status === maps.services.Status.OK && address)
+            onChange({ address, ...coordinates });
+          else
+            setLookupError(
+              "주소를 찾지 못했습니다. 지도에서 다른 지점을 선택해 주세요."
+            );
+        }
+      );
     };
     const click = (event: { latLng: KakaoLatLng }) => select(event.latLng);
     const drag = () => select(marker.getPosition());
@@ -54,11 +73,37 @@ export default function AddressMapPicker({ initial, location, onChange }: {
     };
   }, [initial, instance, onChange]);
 
-  return <div className="grid min-w-0 gap-[.65rem]">
-    <p className="helper">지도를 누르거나 마커를 움직여 주소를 지정해 주세요.</p>
-    <div ref={element} className="map-surface h-[clamp(13rem,39dvh,20rem)]" role="region" aria-label="주소 지정 지도" hidden={!!error} />
-    {!instance && !error && <p className="helper" role="status">지도를 불러오는 중입니다.</p>}
-    {(error || lookupError) && <p className="inline-error" role="alert">{error || lookupError}</p>}
-    <label>선택한 주소<input className="field" readOnly value={location?.address || ""} placeholder={lookingUp ? "주소를 확인하는 중입니다." : "지도에서 지점을 선택해 주세요."} /></label>
-  </div>;
+  return (
+    <div className="grid min-w-0 gap-[.65rem]">
+      <p className="helper">지도를 누르거나 마커를 움직여 주소를 지정해 주세요.</p>
+      <div
+        ref={element}
+        className="map-surface h-[clamp(13rem,39dvh,20rem)]"
+        role="region"
+        aria-label="주소 지정 지도"
+        hidden={!!error}
+      />
+      {!instance && !error && (
+        <p className="helper" role="status">
+          지도를 불러오는 중입니다.
+        </p>
+      )}
+      {(error || lookupError) && (
+        <p className="inline-error" role="alert">
+          {error || lookupError}
+        </p>
+      )}
+      <label>
+        선택한 주소
+        <input
+          className="field"
+          readOnly
+          value={location?.address || ""}
+          placeholder={
+            lookingUp ? "주소를 확인하는 중입니다." : "지도에서 지점을 선택해 주세요."
+          }
+        />
+      </label>
+    </div>
+  );
 }

@@ -29,9 +29,10 @@ const authSlice = createSlice({
       state.user = null;
       state.status = "error";
       state.error = action.payload;
-    },
-  },
+    }
+  }
 });
 
-export const { setUser, clearUser, completeAddressSetup, authError } = authSlice.actions;
+export const { setUser, clearUser, completeAddressSetup, authError } =
+  authSlice.actions;
 export default authSlice.reducer;

@@ -3,7 +3,12 @@ import type { RestaurantOption } from "./Service";
 export interface AdminAction {
   id: number;
   actor_name: string;
-  action: "prompt_update" | "prompt_restore" | "user_delete" | "restaurant_delete" | "post_delete";
+  action:
+    | "prompt_update"
+    | "prompt_restore"
+    | "user_delete"
+    | "restaurant_delete"
+    | "post_delete";
   target_label: string;
   created_at: string;
 }
@@ -18,7 +23,14 @@ export interface AdminTrend {
 
 export interface AdminStats {
   days: 7 | 30;
-  totals: { users: number; new_users: number; experiences: number; reviews: number; restaurants: number; search_requests: number };
+  totals: {
+    users: number;
+    new_users: number;
+    experiences: number;
+    reviews: number;
+    restaurants: number;
+    search_requests: number;
+  };
   trend: AdminTrend[];
   actions: AdminAction[];
 }
