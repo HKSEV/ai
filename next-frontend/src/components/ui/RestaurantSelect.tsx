@@ -42,9 +42,9 @@ export default function RestaurantSelect({ value, onChange }: { value: Restauran
     }
   };
   return (
-    <div className="restaurant-select">
+    <div className="flex min-w-0 flex-col gap-[.45rem]">
       <label htmlFor={inputId}>음식점</label>
-      <input id={inputId} role="combobox" aria-autocomplete="list" aria-expanded={expanded}
+      <input id={inputId} className="field" role="combobox" aria-autocomplete="list" aria-expanded={expanded}
              aria-controls={expanded ? listId : undefined} aria-activedescendant={expanded && highlighted >= 0 ? listId + "-" + highlighted : undefined}
              autoComplete="off" required value={value?.name ?? search} maxLength={150} placeholder="음식점 이름을 입력해 주세요"
              onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onBlur={() => { setOpen(false); setHighlighted(-1); }}
@@ -53,10 +53,11 @@ export default function RestaurantSelect({ value, onChange }: { value: Restauran
                setSearch(event.target.value.slice(0, 100)); setOpen(true); setHighlighted(-1);
                if (value) onChange(null);
              }} />
-      {expanded && <ul className="restaurant-options" id={listId} role="listbox" aria-label="음식점 검색 결과">
+      {expanded && <ul className="max-h-56 overflow-auto overscroll-contain rounded-[.7rem] border border-line bg-paper p-1" id={listId} role="listbox" aria-label="음식점 검색 결과">
         {options.map((item, index) => <li key={item.id} id={listId + "-" + index} role="option" aria-selected={index === highlighted}
+                                         className="grid cursor-pointer gap-[.18rem] rounded-[.45rem] px-3 py-[.65rem] text-[.83rem] leading-[1.45] hover:bg-forest-soft aria-selected:bg-forest-soft"
                                          onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item)}>
-          <strong>{item.name}{item.is_demo && " · 개발 예시"}</strong><span>{item.address}</span>
+          <strong>{item.name}{item.is_demo && " · 개발 예시"}</strong><span className="text-[.74rem] text-muted">{item.address}</span>
         </li>)}
       </ul>}
       {searching && (term !== lookup || query.loading) && <p className="helper" role="status">음식점을 찾고 있어요.</p>}

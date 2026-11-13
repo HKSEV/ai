@@ -54,11 +54,11 @@ export default function AddressMapPicker({ initial, location, onChange }: {
     };
   }, [initial, instance, onChange]);
 
-  return <div className="address-map-picker">
+  return <div className="grid min-w-0 gap-[.65rem]">
     <p className="helper">지도를 누르거나 마커를 움직여 주소를 지정해 주세요.</p>
-    <div ref={element} className="kakao-map address-map" role="region" aria-label="주소 지정 지도" hidden={!!error} />
+    <div ref={element} className="map-surface h-[clamp(13rem,39dvh,20rem)]" role="region" aria-label="주소 지정 지도" hidden={!!error} />
     {!instance && !error && <p className="helper" role="status">지도를 불러오는 중입니다.</p>}
     {(error || lookupError) && <p className="inline-error" role="alert">{error || lookupError}</p>}
-    <label>선택한 주소<input readOnly value={location?.address || ""} placeholder={lookingUp ? "주소를 확인하는 중입니다." : "지도에서 지점을 선택해 주세요."} /></label>
+    <label>선택한 주소<input className="field" readOnly value={location?.address || ""} placeholder={lookingUp ? "주소를 확인하는 중입니다." : "지도에서 지점을 선택해 주세요."} /></label>
   </div>;
 }

@@ -30,10 +30,10 @@ export default function AddressForm({ initial, defaultAddress = false, onSaved, 
     finally { setPending(false); onPendingChange?.(false); }
   };
   return <form className="form-stack" onSubmit={submit}>
-    <label>주소 이름<input required maxLength={20} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="집, 직장, 자주 가는 곳" /></label>
+    <label>주소 이름<input className="field" required maxLength={20} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="집, 직장, 자주 가는 곳" /></label>
     <AddressMapPicker initial={initialLocation} location={location} onChange={setLocation} />
-    {!defaultAddress && <label className="checkbox"><input type="checkbox" checked={isDefault} onChange={(event) => setDefault(event.target.checked)} />기본 출발지로 사용</label>}
+    {!defaultAddress && <label className="flex-row items-center gap-[.65rem] text-[.8rem] font-medium"><input className="size-[1.1rem] flex-none accent-forest" type="checkbox" checked={isDefault} onChange={(event) => setDefault(event.target.checked)} />기본 출발지로 사용</label>}
     {error && <p className="inline-error" role="alert">{error}</p>}
-    <button type="submit" className="button primary" disabled={pending || !location}>{pending ? "저장 중…" : defaultAddress ? "기본 주소 저장하고 탐색하기" : "주소 저장"}</button>
+    <button type="submit" className="button button-primary" disabled={pending || !location}>{pending ? "저장 중…" : defaultAddress ? "기본 주소 저장하고 탐색하기" : "주소 저장"}</button>
   </form>;
 }
