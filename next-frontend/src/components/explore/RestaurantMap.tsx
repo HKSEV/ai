@@ -47,7 +47,7 @@ export default function RestaurantMap({ answerId, restaurants, selected, onSelec
     if (!item || !marker) return;
     const { map, maps } = instance;
     const content = document.createElement("div");
-    content.className = "map-place-info";
+    content.className = "grid max-w-56 gap-[.2rem] py-[.55rem] pr-[1.65rem] pl-[.65rem] text-xs leading-[1.5] whitespace-normal text-navy";
     const name = document.createElement("strong");
     const address = document.createElement("span");
     name.textContent = item.name;
@@ -59,8 +59,8 @@ export default function RestaurantMap({ answerId, restaurants, selected, onSelec
     return () => info.close();
   }, [instance, restaurants, selected]);
 
-  return <div className="restaurant-map">
-    <div ref={element} className="kakao-map" role="region" aria-label="추천 음식점 지도" hidden={!!error} />
+  return <div className="mb-3">
+    <div ref={element} className="map-surface h-60" role="region" aria-label="추천 음식점 지도" hidden={!!error} />
     {error ? <p className="helper" role="status">{error}</p> : !instance && <p className="helper" role="status">지도를 불러오는 중입니다.</p>}
   </div>;
 }

@@ -28,8 +28,8 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
     const node = toast.current;
     if (!node) return;
     const viewport = window.visualViewport;
-    const navigation = document.querySelector(".mobile-nav");
-    const compose = document.querySelector(".chat-compose");
+    const navigation = document.querySelector("[data-mobile-navigation]");
+    const compose = document.querySelector("[data-chat-composer]");
     const updatePosition = () => {
       if (window.innerWidth > 700) { node.style.removeProperty("bottom"); return; }
       const gap = 12;
@@ -64,7 +64,12 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
   return (
     <ToastContext value={notify}>
       {children}
-      {message && <div ref={toast} className="toast" data-closing={closing || undefined} role="status"><LuCheck aria-hidden /><span>{message}</span><button type="button" aria-label="알림 닫기" onClick={dismiss}><LuX /></button></div>}
+      {message && <div ref={toast} data-closing={closing || undefined} role="status"
+                      className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 z-100 flex w-max max-w-[min(calc(100vw-2rem),36rem)] -translate-x-1/2 animate-toast items-center gap-[.6rem] rounded-[.8rem] bg-forest-dark py-[.65rem] pr-[.8rem] pl-4 text-[.84rem] leading-[1.5] text-white shadow-[0_8px_40px_#0002] data-closing:animate-dismiss mobile:bottom-[calc(1rem+env(safe-area-inset-bottom))] mobile:text-[.8rem]">
+        <LuCheck aria-hidden />
+        <span className="min-w-0 pt-[.1rem]">{message}</span>
+        <button type="button" className="grid size-8 flex-none place-items-center rounded-[.4rem] hover:bg-white/10" aria-label="알림 닫기" onClick={dismiss}><LuX /></button>
+      </div>}
     </ToastContext>
   );
 }

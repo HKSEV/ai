@@ -89,5 +89,5 @@ export default function IconTooltips() {
       window.removeEventListener("scroll", reposition, true);
     };
   }, [pathname]);
-  return <div ref={ref} className="icon-tooltip" role="tooltip" popover="manual" hidden />;
+  return <div ref={ref} className="pointer-events-none fixed inset-auto z-110 m-0 w-max max-w-[calc(100vw-1rem)] rounded-[.4rem] border-0 bg-forest-dark px-[.55rem] pt-[.35rem] pb-[.28rem] text-[.7rem] leading-[1.45] text-white shadow-[0_3px_12px_#193e2e33]" role="tooltip" popover="manual" hidden />;
 }
