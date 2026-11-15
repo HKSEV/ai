@@ -29,7 +29,7 @@ const React = require('react');
 const { Provider } = require('react-redux');
 const { render, screen, cleanup, act, fireEvent, waitFor, within } = require('@testing-library/react');
 const { makeStore } = require('../src/store/store.ts');
-const { setConversation, setPending } = require('../src/store/chatSlice.ts');
+const { setConversation } = require('../src/store/chatSlice.ts');
 const Explore = require('../src/components/explore/Explore.tsx').default;
 const restaurant = {
   id: 1, name: '검증용 공릉식당', address: '서울 노원구 공릉동', area: '공릉동', category: '한식',
@@ -41,6 +41,7 @@ const restaurant = {
 };
 const conversation = (messages) => ({ id: 1, title: '테스트', conditions: { area: '공릉동' }, messages });
 const message = (id, recommendations = []) => ({ id, role: 'assistant', content: '검증 응답 ' + id, recommendations, created_at: '2026-11-10T00:00:00Z' });
+const userMessage = (id, content) => ({ ...message(id), role: 'user', content });
 let requests = [];
 test.beforeEach(() => {
   requests = [];
@@ -52,6 +53,39 @@ test.beforeEach(() => {
 });
 test.afterEach(cleanup);
 function mount(store) { return render(React.createElement(Provider, { store }, React.createElement(Explore))); }
+
+function delayChat() {
+  const fallback = global.fetch;
+  let finish;
+  global.fetch = (url, options = {}) => {
+    if (url !== '/api/chat') return fallback(url, options);
+    requests.push({ url, options });
+    return new Promise((resolve) => { finish = resolve; });
+  };
+  return (body, status = 200) => finish(new Response(JSON.stringify(body), { status }));
+}
+
+function send(content) {
+  fireEvent.change(screen.getByLabelText('맛집 탐색 요청'), { target: { value: content } });
+  fireEvent.click(screen.getByLabelText('메시지 보내기'));
+}
+
+test('a new chat shows the user message before the server creates the conversation', async () => {
+  const finish = delayChat();
+  const store = makeStore();
+  mount(store);
+  const content = '공릉동에서 식사할 곳';
+  send(content);
+  const log = within(screen.getByRole('log', { name: '채팅 기록' }));
+  assert.equal(log.getAllByText(content).length, 1);
+  assert.ok(log.getByRole('status'));
+  assert.equal(log.queryByText('검증 응답 2'), null);
+  assert.equal(JSON.parse(requests.find((request) => request.url === '/api/chat').options.body).conversation_id, null);
+  await act(async () => finish(conversation([userMessage(1, content), message(2)])));
+  assert.equal(log.getAllByText(content).length, 1);
+  assert.ok(log.getByText('검증 응답 2'));
+  assert.equal(log.queryByRole('status'), null);
+});
 
 test('a completed follow-up with no recommendations clears cards from the previous conditions', async () => {
   const store = makeStore();
@@ -66,16 +100,44 @@ test('a completed follow-up with no recommendations clears cards from the previo
 });
 
 test('previous cards remain explicitly labelled while the next recommendation is loading', async () => {
+  const finish = delayChat();
   const store = makeStore();
-  store.dispatch(setConversation(conversation([message(1, [restaurant])])));
-  store.dispatch(setPending(true));
+  const content = '공릉동에서 식사할 곳';
+  const initial = [userMessage(1, content), message(2, [restaurant])];
+  store.dispatch(setConversation(conversation(initial)));
   mount(store);
+  send(content);
+  const log = within(screen.getByRole('log', { name: '채팅 기록' }));
   assert.ok(screen.getByText('검증용 공릉식당'));
   assert.ok(screen.getByText('새 조건을 확인하는 동안 이전 추천을 표시합니다.'));
-  await act(async () => { store.dispatch(setPending(false)); });
+  assert.equal(log.getAllByText(content).length, 2);
+  assert.equal(log.queryByText('검증 응답 4'), null);
+  assert.equal(JSON.parse(requests.find((request) => request.url === '/api/chat').options.body).conversation_id, 1);
+  await act(async () => finish(conversation([...initial, userMessage(3, content), message(4)])));
+  assert.equal(log.getAllByText(content).length, 2);
+  assert.ok(log.getByText('검증 응답 4'));
+});
+
+test('a failed chat keeps the message and alert and replaces its local copy on retry', async () => {
+  const finish = delayChat();
+  mount(makeStore());
+  const content = '공릉동 피자집';
+  const log = within(screen.getByRole('log', { name: '채팅 기록' }));
+  send(content);
+  await act(async () => finish({ detail: 'AI 응답을 처리하지 못했습니다.' }, 502));
+  assert.equal(log.getAllByText(content).length, 1);
+  assert.equal(log.getByRole('alert').textContent, 'AI 응답을 처리하지 못했습니다.');
+  assert.equal(screen.getByLabelText('맛집 탐색 요청').value, content);
+  fireEvent.click(screen.getByLabelText('메시지 보내기'));
+  assert.equal(log.getAllByText(content).length, 1);
+  assert.equal(log.queryByRole('alert'), null);
+  await act(async () => finish(conversation([userMessage(1, content), message(2)])));
+  assert.equal(log.getAllByText(content).length, 1);
+  assert.ok(log.getByText('검증 응답 2'));
 });
 
 test('the recommendation panel returns to the top when the next answer arrives', async () => {
+  const finish = delayChat();
   const store = makeStore();
   const initial = message(1, [restaurant]);
   const updatedRestaurant = { ...restaurant, id: 2, name: '검증용 중계식당', reason: '서울 노원구 중계동에 위치합니다.' };
@@ -83,12 +145,10 @@ test('the recommendation panel returns to the top when the next answer arrives',
   mount(store);
   const panel = screen.getByRole('region', { name: '추천 음식점' });
   panel.scrollTop = 200;
-  await act(async () => { store.dispatch(setPending(true)); });
+  const content = '중계동으로 바꿔 줘';
+  send(content);
   assert.equal(panel.scrollTop, 200);
-  await act(async () => {
-    store.dispatch(setConversation(conversation([initial, message(2, [updatedRestaurant])])));
-    store.dispatch(setPending(false));
-  });
+  await act(async () => finish(conversation([initial, userMessage(2, content), message(3, [updatedRestaurant])])));
   assert.equal(screen.queryByText(restaurant.name), null);
   assert.ok(screen.getByText(updatedRestaurant.name));
   assert.equal(screen.queryByText(restaurant.reason), null);
@@ -153,5 +213,5 @@ test('denied location permission still permits a typed origin and a chat request
   assert.equal(body.origin_text, '공릉역');
   assert.equal(body.message, '한식집 찾아줘');
   assert.equal(body.latitude, undefined);
-  await waitFor(() => assert.equal(store.getState().chat.pending, false));
+  await waitFor(() => assert.equal(store.getState().chat.pending, null));
 });

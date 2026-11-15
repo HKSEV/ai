@@ -40,7 +40,7 @@ export default function MyRecords() {
   const [editing, setEditing] = useState<Visit | "new" | null>(null);
   const [removing, setRemoving] = useState<{ id: number; type: string } | null>(null);
   const [pending, setPending] = useState(false);
-  const sending = useSelector((state: RootState) => state.chat.pending);
+  const sending = useSelector((state: RootState) => !!state.chat.pending);
   const dispatch = useDispatch();
   const router = useRouter();
   const toast = useToast();

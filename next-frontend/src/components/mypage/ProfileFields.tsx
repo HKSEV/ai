@@ -44,10 +44,12 @@ export default function ProfileFields({
         카카오계정 이메일
         <input className="field" type="text" readOnly value={user.email || "미제공"}/>
       </label>
-      <label>
-        계정 역할
-        <input className="field" readOnly value={user.role}/>
-      </label>
+      {admin && (
+        <label>
+          계정 역할
+          <input className="field" readOnly value={user.role}/>
+        </label>
+      )}
       <label>
         산책 닉네임
         <input

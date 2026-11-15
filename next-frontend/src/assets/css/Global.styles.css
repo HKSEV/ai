@@ -108,6 +108,12 @@
     m-0 bg-cream font-sans text-[.9375rem] leading-[1.65] text-navy
     break-keep wrap-anywhere mobile:text-[.875rem];
   }
+  :where(body *) {
+    scrollbar-width: none;
+  }
+  :where(body *)::-webkit-scrollbar {
+    display: none;
+  }
   button, a, input, textarea, select {
     @apply [-webkit-tap-highlight-color:transparent];
   }

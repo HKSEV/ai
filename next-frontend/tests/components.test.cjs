@@ -139,7 +139,7 @@ test("profile saves preferences and updates shared nickname", async () => {
   };
   const ProfileForm = require("../src/components/mypage/ProfileForm.tsx").default;
   const store = setup(ProfileForm, { user });
-  assert.equal(screen.getByLabelText("계정 역할").readOnly, true);
+  assert.equal(screen.queryByLabelText("계정 역할"), null);
   fireEvent.change(screen.getByLabelText(/산책 닉네임/), { target: { value: "노원한입탐험가" } });
   fireEvent.click(screen.getByRole("button", { name: "일식" }));
   fireEvent.click(screen.getByRole("button", { name: "취향 저장하기" }));
@@ -147,6 +147,14 @@ test("profile saves preferences and updates shared nickname", async () => {
   assert.deepEqual(store.getState().auth.user.preferences, ["한식", "일식"]);
   assert.equal(calls[0].url, "/api/me");
   assert.equal(Object.hasOwn(JSON.parse(calls[0].options.body), "role"), false);
+});
+
+test("the admin profile fields retain the read-only account role", () => {
+  const ProfileFields = require("../src/components/mypage/ProfileFields.tsx").default;
+  setup(ProfileFields, { user, admin: true });
+  const roleField = screen.getByLabelText("계정 역할");
+  assert.equal(roleField.value, user.role);
+  assert.equal(roleField.readOnly, true);
 });
 
 test("address form saves a confirmed map point through the private endpoint", async () => {

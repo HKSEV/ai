@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { nanoid } from "@reduxjs/toolkit";
 import { useDispatch, useSelector } from "react-redux";
 import ReactMarkdown from "react-markdown";
 import {
@@ -30,10 +31,12 @@ import type {
 import type { RootState } from "@/store/store";
 import {
   conversationDeleted,
+  finishSend,
   resetChat,
   setConversation,
   setInput,
-  setPending
+  startSend,
+  type OutgoingMessage
 } from "@/store/chatSlice";
 import AddressMapPicker from "@/components/map/AddressMapPicker";
 import Modal from "@/components/ui/Modal";
@@ -64,6 +67,7 @@ const historyPanel = `
   tablet:col-span-full tablet:max-h-[350px] tablet:overflow-y-auto tablet:rounded-2xl
   tablet:border tablet:border-line tablet:bg-paper tablet:p-4 mobile:col-auto
 `;
+const panelHeight = "h-[clamp(680px,calc(100dvh-235px),735px)] mobile:h-[700px]";
 const markdownBubble = `
   [&_p+p]:mt-[.7rem] [&_h3]:mt-[.85rem] [&_h3]:mb-1 [&_h3]:text-[.85rem]
   [&_h3]:text-forest-dark [&_ul]:pl-[1.4rem] [&_ol]:pl-[1.4rem] [&_a]:text-forest
@@ -109,7 +113,7 @@ async function savedPosition() {
 }
 
 export default function Explore() {
-  const { active, input, pending } = useSelector((state: RootState) => state.chat);
+  const { active, input, pending, outgoing } = useSelector((state: RootState) => state.chat);
   const user = useSelector((state: RootState) => state.auth.user);
   const dispatch = useDispatch();
   const toast = useToast();
@@ -133,11 +137,23 @@ export default function Explore() {
     answer: number;
     id: number;
   } | null>(null);
-  const [error, setError] = useState("");
   const locked = useRef(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const chatLog = useRef<HTMLDivElement>(null);
   const resultsPanel = useRef<HTMLElement>(null);
   const mapArea = useRef<HTMLDivElement>(null);
+  const outgoingByAnchor = new Map<number | null, OutgoingMessage[]>();
+  for (const message of outgoing) {
+    const following = outgoingByAnchor.get(message.afterId);
+    if (following) following.push(message);
+    else outgoingByAnchor.set(message.afterId, [message]);
+  }
+  const messages = [
+    ...(outgoingByAnchor.get(null) || []),
+    ...(active?.messages || []).flatMap((message) => [
+      message,
+      ...(outgoingByAnchor.get(message.id) || [])
+    ])
+  ];
   const answer = [...(active?.messages || [])]
     .reverse()
     .find((message) => message.role === "assistant");
@@ -150,10 +166,10 @@ export default function Explore() {
     results.length ? "/api/restaurants/reviewed?" + reviewedParams : null
   );
   const selected = mapSelection?.answer === answerId ? mapSelection : null;
-  const busy = pending || locating || opening || deleting;
+  const busy = !!pending || locating || opening || deleting;
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [active?.messages.length, pending]);
+    if (chatLog.current) chatLog.current.scrollTop = chatLog.current.scrollHeight;
+  }, [active?.id, messages.length, pending]);
   useEffect(() => {
     if (resultsPanel.current) resultsPanel.current.scrollTop = 0;
   }, [answerId]);
@@ -191,7 +207,8 @@ export default function Explore() {
     const message = value.trim();
     if (!message || locked.current || pending) return;
     locked.current = true;
-    setError("");
+    const id = nanoid();
+    dispatch(startSend({ id, content: message }));
     try {
       const radius = radiusRequest.test(message);
       const wantsCurrent =
@@ -209,15 +226,13 @@ export default function Explore() {
               ? await savedPosition()
               : null) || undefined;
         if (!position) {
-          dispatch(setInput(message));
+          dispatch(finishSend({ id, cancelled: true }));
           setMapRequest({ message });
           return;
         }
       }
       if (position) setSearchPosition(position);
       setLocating(false);
-      dispatch(setPending(true));
-      dispatch(setInput(""));
       const point = position
         ? { latitude: position.latitude, longitude: position.longitude }
         : coordinates;
@@ -228,25 +243,13 @@ export default function Explore() {
         "/api/chat",
         json("POST", { message, conversation_id: active?.id || null, ...departure })
       );
-      const previousMessages = new Map(
-        active?.id === response.id ? active.messages.map((item) => [item.id, item]) : []
-      );
-      dispatch(
-        setConversation({
-          ...response,
-          messages: response.messages.map(
-            (item) => previousMessages.get(item.id) || item
-          )
-        })
-      );
+      dispatch(finishSend({ id, conversation: response }));
       history.reload();
     } catch (error) {
-      setError(errorMessage(error));
-      dispatch(setInput(message));
+      dispatch(finishSend({ id, error: errorMessage(error) }));
     } finally {
       locked.current = false;
       setLocating(false);
-      dispatch(setPending(false));
     }
   };
   const selectConversation = async (id: number) => {
@@ -257,7 +260,6 @@ export default function Explore() {
       const response = await api<Conversation>("/api/conversations/" + id);
       dispatch(setConversation(response));
       setShowHistory(false);
-      setError("");
       setOrigin("");
       setCoordinates(null);
       setLocationMessage("");
@@ -302,6 +304,15 @@ export default function Explore() {
     }
   };
   const conditions = active?.conditions;
+  const conditionLabels = [
+    conditions?.area,
+    conditions?.cuisine,
+    conditions?.party_size ? conditions.party_size + "명" : null,
+    conditions?.budget_total ? "총 " + money(conditions.budget_total) : null,
+    conditions?.radius_metres ? "반경 " + distanceLabel(conditions.radius_metres) : null,
+    conditions?.atmosphere,
+    conditions?.purpose
+  ].filter(Boolean);
   return (
     <div
       className="mx-auto max-w-[1504px] px-8 pt-[2.2rem] pb-8 compact:px-5
@@ -340,13 +351,15 @@ export default function Explore() {
       compact:grid-cols-[155px_minmax(300px,1fr)_minmax(270px,1fr)] compact:gap-4
       tablet:grid-cols-[minmax(320px,1.1fr)_minmax(280px,1fr)] mobile:grid-cols-1
       mobile:gap-[1.4rem]">
-        <aside className={`min-w-0 pt-[.15rem] ${showHistory ? historyPanel : "tablet:hidden"}`}>
+        <aside
+          className={`min-w-0 pt-[.15rem] ${showHistory ? historyPanel : "tablet:hidden"}`}
+          aria-label="지난 이야기"
+          tabIndex={showHistory ? 0 : undefined}>
           <button
             className="button button-primary w-full p-[.8rem] text-[.8rem]"
             disabled={busy}
             onClick={() => {
               dispatch(resetChat());
-              setError("");
               setShowHistory(false);
             }}>
             <LuPlus/>
@@ -413,13 +426,13 @@ export default function Explore() {
           </div>
         </aside>
         <section
-          className="flex h-[735px] max-h-[max(680px,calc(100dvh-235px))] min-w-0
-          flex-col overflow-hidden rounded-[1.15rem] border border-line bg-paper
-          shadow-surface mobile:h-[700px] mobile:max-h-none mobile:min-h-[620px]
-          mobile:rounded-2xl"
+          className={`
+            ${panelHeight} flex min-w-0 flex-col overflow-hidden rounded-[1.15rem]
+            border border-line bg-paper shadow-surface mobile:rounded-2xl
+          `}
           aria-label="AI와 맛집 탐색 대화">
           <div
-            className="flex items-center gap-[.7rem] border-b border-[#ebede5]
+            className="flex shrink-0 items-center gap-[.7rem] border-b border-[#ebede5]
           px-[1.3rem] py-[1.1rem] mobile:p-4">
             <span
               className="grid size-[2.3rem] flex-none place-items-center
@@ -435,10 +448,14 @@ export default function Explore() {
             <span className="badge ml-auto">AI</span>
           </div>
           <div
+            ref={chatLog}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[1.1rem]
-            py-[1.3rem] mobile:px-[.9rem] mobile:py-[1.1rem]"
-            aria-live="polite">
-            {!active?.messages.length && (
+            py-[1.3rem] focus-visible:-outline-offset-3 mobile:overscroll-auto
+            mobile:px-[.9rem] mobile:py-[1.1rem]"
+            role="log"
+            aria-label="채팅 기록"
+            tabIndex={0}>
+            {messages.length === 0 && (
               <div
                 className="px-[.6rem] pt-6 pb-4 text-center mobile:px-2
               mobile:pt-[1.3rem] mobile:pb-2">
@@ -479,7 +496,7 @@ export default function Explore() {
                 </div>
               </div>
             )}
-            {active?.messages.map((message) => (
+            {messages.map((message) => (
               <div
                 key={message.id}
                 className={chatRow + (message.role === "user" ? " justify-end" : "")}>
@@ -495,10 +512,15 @@ export default function Explore() {
                       : assistantBubble}
                 `}>
                   <ReactMarkdown>{message.content}</ReactMarkdown>
+                  {"error" in message && message.error && message.id !== pending && (
+                    <p className="mt-2 text-[.72rem] text-[#9d4836]" role="alert">
+                      {message.error}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
-            {pending && (
+            {pending && !locating && (
               <div className={chatRow}>
                 <span className={messageAvatar}>
                   <LuLeaf/>
@@ -520,40 +542,27 @@ export default function Explore() {
                 </div>
               </div>
             )}
-            {error && (
-              <div className="inline-error" role="alert">
-                {error}
-              </div>
-            )}
-            <div ref={bottom}/>
           </div>
-          {conditions && (
-            <div className="flex flex-wrap gap-[.3rem] px-4 pt-[.6rem]">
-              {[
-                conditions.area,
-                conditions.cuisine,
-                conditions.party_size ? conditions.party_size + "명" : null,
-                conditions.budget_total ? "총 " + money(conditions.budget_total) : null,
-                conditions.radius_metres
-                  ? "반경 " + distanceLabel(conditions.radius_metres)
-                  : null,
-                conditions.atmosphere,
-                conditions.purpose
-              ]
-                .filter(Boolean)
-                .map((value, i) => (
-                  <span
-                    className="rounded-full bg-forest-soft px-[.6rem] py-[.2rem]
-                    text-[.65rem] text-forest"
-                    key={i}>
-                    {value}
-                  </span>
-                ))}
+          {conditionLabels.length > 0 && (
+            <div
+              className="flex max-h-32 shrink-0 flex-wrap gap-[.3rem] overflow-y-auto
+              px-4 pt-[.6rem] focus-visible:-outline-offset-3"
+              role="region"
+              aria-label="현재 검색 조건"
+              tabIndex={0}>
+              {conditionLabels.map((value, i) => (
+                <span
+                  className="rounded-full bg-forest-soft px-[.6rem] py-[.2rem]
+                  text-[.65rem] text-forest"
+                  key={i}>
+                  {value}
+                </span>
+              ))}
             </div>
           )}
           <div
             data-chat-composer
-            className="border-t border-[#f0f0e8] bg-paper px-4 pt-[.9rem] pb-[.85rem]
+            className="shrink-0 border-t border-[#f0f0e8] bg-paper px-4 pt-[.9rem] pb-[.85rem]
             mobile:p-[.8rem]">
             <div className="flex items-center gap-[.4rem] text-muted">
               <LuMapPin className="text-[.9rem]"/>
@@ -651,9 +660,12 @@ export default function Explore() {
         </section>
         <section
           ref={resultsPanel}
-          className="max-h-[735px] min-w-0 overflow-y-auto overscroll-contain px-[.2rem]
-          pb-[.2rem] mobile:max-h-none mobile:overflow-visible mobile:p-0"
-          aria-label="추천 음식점">
+          className={`
+            ${panelHeight} min-w-0 overflow-y-auto overscroll-contain px-[.2rem]
+            pb-[.2rem] focus-visible:-outline-offset-3 mobile:overscroll-auto mobile:p-0
+          `}
+          aria-label="추천 음식점"
+          tabIndex={0}>
           <div
             className="flex items-center justify-between px-[.1rem] pt-[.35rem]
           pb-[1.1rem] mobile:px-[.2rem] mobile:pt-[.2rem] mobile:pb-[.9rem]">

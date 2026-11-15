@@ -1,23 +1,78 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { Conversation } from "@/app/types/Service";
 
-const initialState: { active: Conversation | null; input: string; pending: boolean } = {
+export interface OutgoingMessage {
+  id: string;
+  role: "user";
+  content: string;
+  afterId: number | null;
+  error?: string;
+}
+
+type SendResult =
+  | { id: string; conversation: Conversation }
+  | { id: string; error: string }
+  | { id: string; cancelled: true };
+
+interface ChatState {
+  active: Conversation | null;
+  input: string;
+  pending: string | null;
+  outgoing: OutgoingMessage[];
+}
+
+const initialState: ChatState = {
   active: null,
   input: "",
-  pending: false
+  pending: null,
+  outgoing: []
 };
 const chatSlice = createSlice({
   name: "chat",
   initialState,
   reducers: {
     setConversation: (state, action: PayloadAction<Conversation>) => {
+      if (state.pending && state.active?.id === action.payload.id) return;
       state.active = action.payload;
+      state.pending = null;
+      state.outgoing = [];
     },
     setInput: (state, action: PayloadAction<string>) => {
       state.input = action.payload;
     },
-    setPending: (state, action: PayloadAction<boolean>) => {
-      state.pending = action.payload;
+    startSend: (state, action: PayloadAction<{ id: string; content: string }>) => {
+      if (state.pending) return;
+      const { id, content } = action.payload;
+      const afterId = state.active?.messages.at(-1)?.id ?? null;
+      const last = state.outgoing.at(-1);
+      if (last?.afterId === afterId && last.content === content) last.id = id;
+      else state.outgoing.push({ id, role: "user", content, afterId });
+      state.pending = id;
+      if (state.input.trim() === content) state.input = "";
+    },
+    finishSend: (state, action: PayloadAction<SendResult>) => {
+      const result = action.payload;
+      const message = state.outgoing.at(-1);
+      if (state.pending !== result.id || message?.id !== result.id) return;
+      state.pending = null;
+      if ("conversation" in result) {
+        const { conversation } = result;
+        // Keep live estimates from earlier replies when the server returns saved history.
+        const previousMessages = new Map(
+          state.active?.id === conversation.id
+            ? state.active.messages.map((item) => [item.id, item])
+            : []
+        );
+        state.active = {
+          ...conversation,
+          messages: conversation.messages.map((item) => previousMessages.get(item.id) || item)
+        };
+        state.outgoing.pop();
+        return;
+      }
+      if ("error" in result) message.error = result.error;
+      if (!message.error) state.outgoing.pop();
+      if (!state.input) state.input = message.content;
     },
     conversationDeleted: (state, action: PayloadAction<number>) => {
       if (state.active?.id === action.payload) return initialState;
@@ -26,6 +81,12 @@ const chatSlice = createSlice({
   }
 });
 
-export const { setConversation, setInput, setPending, conversationDeleted, resetChat } =
-  chatSlice.actions;
+export const {
+  setConversation,
+  setInput,
+  startSend,
+  finishSend,
+  conversationDeleted,
+  resetChat
+} = chatSlice.actions;
 export default chatSlice.reducer;
