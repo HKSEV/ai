@@ -7,6 +7,7 @@ import {
 } from "react-icons/lu";
 import type { Restaurant } from "@/app/types/Service";
 import { checkedTime, distanceLabel, money } from "@/app/lib/format";
+import { postPath } from "@/app/lib/paths";
 
 const section = "mt-[1.15rem] border-t border-[#eeeee4] pt-[.95rem]";
 const sectionTitle = "mb-[.6rem]";
@@ -187,7 +188,7 @@ export default function RestaurantCard({
           <h4 className={sectionTitle}>이웃 리뷰에서</h4>
           {item.review_summary.slice(0, 2).map((review) => (
             <Link
-            href={"/community/" + review.id}
+            href={postPath(review.id)}
             className="mt-[.6rem] block border-l-2 border-[#d3dccb]
             pl-[.6rem] text-[.7rem]"
             key={review.id}>

@@ -65,6 +65,8 @@ npm run dev
 
 `http://localhost:3000`으로 접속합니다. 프론트의 `/api/*` 요청은 Next.js rewrite를 통해 백엔드로 전달됩니다. 쿠키 호스트를 일치시키기 위해 localhost와 127.0.0.1을 브라우저에서 섞어 사용하지 마세요. API 명세는 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다. 변경 API를 직접 호출할 때는 `X-Requested-With: nowon-walk` 헤더와 로그인 쿠키가 필요합니다.
 
+`npm run build`로 만든 정적 파일을 `/group/one/3/`에 배포할 때는 [정적 배포 설정](next-frontend/README.md#groupone3-정적-배포)을 참고하세요.
+
 `init_db`는 새 데이터베이스에 테이블을 생성합니다. 기존 DB는 가입 요청을 중단한 상태에서 새 백엔드를 시작하기 전에 다음 마이그레이션을 실행하세요.
 
 ```bash
@@ -90,7 +92,7 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 
 ## 관리자 페이지
 
-- 마이페이지의 `관리자 페이지`에서 접속하세요. 역할은 마이페이지와 유저 관리에서 읽기 전용입니다. 서버가 관리자 화면과 API의 세션·역할을 확인합니다.
+- 마이페이지의 `관리자 페이지`에서 접속하세요. 계정 역할은 관리자 유저 관리에서 읽기 전용으로 확인할 수 있습니다. FastAPI가 관리자 API의 세션과 역할을 확인합니다.
 - 통계는 DB에 남아 있는 가입자, 후기, 리뷰, 식당, AI 탐색 기록을 집계합니다. 7일·30일 추이는 오늘을 포함한 한국 시간 기준입니다. 최근 관리자 작업에는 프롬프트 저장·복원과 유저·식당·게시물 삭제를 표시합니다.
 - AI 관리에서 조건 추출과 음식점 추천 프롬프트를 편집하세요. 저장 전에 입력 변수, 응답 필드, JSON 객체 지시를 확인합니다. 실제 응답은 기존 구조화 스키마로 검증합니다. 저장과 복원은 새 버전을 만들고 다음 탐색부터 적용됩니다.
 - 식당 삭제 확인창에 연결된 리뷰, 방문 기록, 메뉴 수를 표시합니다. 삭제한 식당은 탐색과 관리 목록에서 숨기고 연결 기록은 보존합니다.
@@ -101,10 +103,10 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 | --- | --- | --- |
 | 루트 `.env` | `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD` | Compose 관리자/앱 DB 비밀번호 |
 | 백엔드 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | MySQL 연결. `DATABASE_URL`이 있으면 우선 사용 |
-| 백엔드 | `FRONTEND_URL` | 정확한 서비스 origin. 기본 http://localhost:3000 |
+| 백엔드 | `FRONTEND_URL` | 서비스 공개 주소. 하위 경로로 배포하면 경로까지 입력합니다. 기본 http://localhost:3000 |
 | 백엔드 | `KAKAO_REST_API_KEY` | 카카오 로그인 REST API 키 |
 | 백엔드 | `KAKAO_CLIENT_SECRET` | 카카오 앱에서 Client Secret을 사용한다면 설정 |
-| 백엔드 | `KAKAO_REDIRECT_URI` | 기본 http://localhost:3000/api/auth/kakao/callback |
+| 백엔드 | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소. 기본 `FRONTEND_URL` + `/api/auth/kakao/callback` |
 | 백엔드 | `KAKAO_LOCAL_REST_API_KEY` | 실제 장소 검색과 텍스트 출발지의 좌표 조회 |
 | 백엔드 | `KAKAO_PLACE_STORAGE_ALLOWED` | 저장·재이용 권한 확인 후 true. 기본 false |
 | 백엔드 | `KAKAO_MOBILITY_REST_API_KEY` | 자동차 길찾기 API 이용 권한을 부여받은 앱의 REST API 키 |
@@ -113,7 +115,7 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 | 백엔드 | `INCLUDE_DEMO_DATA` | 개발 예시 노출 여부. 기본 false |
 | 백엔드 | `DATA_MAX_AGE_DAYS` | 메뉴·영업시간 신뢰 기한. 기본 30일 |
 | 백엔드 | `UPLOADS_DIR` | 기본 backend/uploads. 운영 시 영속 볼륨 |
-| 프론트 | `BACKEND_URL` | 서버 전용 백엔드 주소. 배포 빌드 시 적용 |
+| 프론트 | `BACKEND_URL` | 로컬 개발·Next.js 서버 모드의 백엔드 주소. 정적 배포에서는 웹 서버에서 프록시를 설정합니다. |
 | 프론트 | `KAKAO_JAVASCRIPT_KEY` | 지도에 사용하는 카카오 JavaScript 키. 빌드 시 브라우저에 공개 |
 
 Gemini API 키에서 사용할 수 있는 모델 ID를 설정하세요. 카카오 REST 키, Client Secret, Gemini 키와 DB 연결 정보는 백엔드 환경변수에 설정하세요.

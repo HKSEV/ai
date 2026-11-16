@@ -77,6 +77,33 @@ test("anonymous guard redirects and never renders private content", async () => 
   assert.equal(screen.queryByText("개인 주소"), null);
 });
 
+test("the static admin guard only renders its contents for administrators", async () => {
+  const AuthGuard = require("../src/components/layout/AuthGuard.tsx").default;
+  const store = setup(AuthGuard, {
+    adminOnly: true,
+    children: React.createElement("p", null, "운영 현황"),
+  });
+  await waitFor(() => assert.deepEqual(navigation, ["/mypage"]));
+  assert.equal(screen.queryByText("운영 현황"), null);
+  await act(async () => store.dispatch(setUser({ ...user, role: "ADMIN" })));
+  assert.ok(screen.getByText("운영 현황"));
+});
+
+test("static exports send credentialed API calls under the base path", async () => {
+  const previous = process.env.NEXT_PUBLIC_BASE_PATH;
+  process.env.NEXT_PUBLIC_BASE_PATH = "/group/one/3";
+  try {
+    const { api } = require("../src/app/lib/api.ts");
+    await api("/api/auth/me");
+    assert.equal(calls[0].url, "/group/one/3/api/auth/me");
+    assert.equal(calls[0].options.credentials, "include");
+    assert.equal(new Headers(calls[0].options.headers).get("X-Requested-With"), "nowon-walk");
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_BASE_PATH;
+    else process.env.NEXT_PUBLIC_BASE_PATH = previous;
+  }
+});
+
 test("community form saves through API then opens persisted detail", async () => {
   global.fetch = async (url, options = {}) => { calls.push({ url: String(url), options }); return response({ id: 42 }, 201); };
   const PostForm = require("../src/components/community/PostForm.tsx").default;
@@ -84,7 +111,7 @@ test("community form saves through API then opens persisted detail", async () =>
   fireEvent.change(screen.getByLabelText("제목"), { target: { value: "새로운 동네 산책" } });
   fireEvent.change(screen.getByLabelText(/이야기.*10,000/), { target: { value: "좋은 음식점을 발견해서 이웃에게 소개하고 싶습니다." } });
   fireEvent.click(screen.getByRole("button", { name: "이야기 남기기" }));
-  await waitFor(() => assert.deepEqual(navigation, ["/community/42"]));
+  await waitFor(() => assert.deepEqual(navigation, ["/community/detail?id=42"]));
   const payload = JSON.parse(calls[0].options.body);
   assert.equal(payload.kind, "experience");
   assert.equal(payload.title, "새로운 동네 산책");
@@ -120,7 +147,7 @@ test("review autocomplete disambiguates matching names and clears the selection 
   fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   fireEvent.click(screen.getByRole("button", { name: "이야기 남기기" }));
-  await waitFor(() => assert.deepEqual(navigation, ["/community/42"]));
+  await waitFor(() => assert.deepEqual(navigation, ["/community/detail?id=42"]));
   assert.equal(JSON.parse(calls.find(({ url }) => url === "/api/posts").options.body).restaurant_id, 12);
 });
 

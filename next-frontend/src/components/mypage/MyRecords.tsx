@@ -7,6 +7,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { LuArrowUpRight, LuPlus, LuTrash2 } from "react-icons/lu";
 import { api, deleteConversation, errorMessage } from "@/app/lib/api";
 import { checkedTime } from "@/app/lib/format";
+import { postPath } from "@/app/lib/paths";
 import useApiQuery from "@/app/lib/useApiQuery";
 import type {
   Conversation,
@@ -153,7 +154,7 @@ export default function MyRecords() {
                 </>
               ) : "kind" in row ? (
                 <>
-                  <Link href={"/community/" + row.id}>
+                  <Link href={postPath(row.id)}>
                     <h3 className={recordTitle}>
                       {row.title}
                       <LuArrowUpRight className="text-[#829777]"/>

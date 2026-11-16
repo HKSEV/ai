@@ -1,3 +1,5 @@
+import { withBasePath } from "./paths";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -16,7 +18,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(withBasePath(path), {
       ...options,
       headers,
       credentials: "include",

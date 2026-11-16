@@ -7,6 +7,7 @@ import { useSelector } from "react-redux";
 import { LuArrowUpRight, LuLeaf, LuPenLine } from "react-icons/lu";
 import type { PageResult, Post } from "@/app/types/Service";
 import { checkedTime } from "@/app/lib/format";
+import { postPath, withBasePath } from "@/app/lib/paths";
 import useApiQuery from "@/app/lib/useApiQuery";
 import { Empty, ErrorState, Loading, Pagination } from "@/components/ui/States";
 import type { RootState } from "@/store/store";
@@ -125,7 +126,7 @@ export default function Community() {
             bg-paper transition-[box-shadow,translate] duration-200
             hover:-translate-y-[3px] hover:shadow-[0_10px_35px_#2233470c]"
             key={post.id}>
-            <Link className="block h-full" href={"/community/" + post.id}>
+            <Link className="block h-full" href={postPath(post.id)}>
               <div className={`
                 relative flex h-[175px] flex-col items-center justify-center
                 overflow-hidden mobile:h-[190px]
@@ -136,7 +137,7 @@ export default function Community() {
                 {post.photo_urls[0] ? (
                   <Image
                     className="object-cover"
-                    src={post.photo_urls[0]}
+                    src={withBasePath(post.photo_urls[0])}
                     fill
                     sizes="(max-width: 700px) 100vw, 33vw"
                     unoptimized

@@ -45,7 +45,7 @@ function readTheme() {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "light");
-  const pathname = usePathname();
+  const pathname = usePathname().replace(/\/$/, "");
   const toggleTheme = () => {
     try {
       localStorage.setItem(themeKey, theme === "dark" ? "light" : "dark");

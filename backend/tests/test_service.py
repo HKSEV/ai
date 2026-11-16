@@ -129,6 +129,14 @@ class ServiceTests(unittest.TestCase):
     self.login(fresh_token)
     self.assertEqual(self.client.get("/api/auth/me").json()["preferences"], ["한식", "일식"])
 
+  def test_prefixed_frontend_uses_the_origin_for_profile_updates(self):
+    frontend = replace(settings, frontend_url="https://nowon.example/group/one/3")
+    with patch("main.settings", frontend):
+      own_origin = self.client.put("/api/me", json=self.profile(), headers={"Origin": "https://nowon.example"})
+      self.assertEqual(own_origin.status_code, 200, own_origin.text)
+      other_origin = self.client.put("/api/me", json=self.profile(), headers={"Origin": "https://other.example"})
+      self.assertEqual(other_origin.status_code, 403)
+
   def test_address_crud_default_and_ownership(self):
     payload = {"label": "집", "address": "서울 노원구 공릉로 1"}
     first = self.client.post("/api/me/addresses", json=payload)

@@ -7,6 +7,7 @@ import { useSelector } from "react-redux";
 import { LuArrowLeft, LuPenLine } from "react-icons/lu";
 import useApiQuery from "@/app/lib/useApiQuery";
 import { checkedTime } from "@/app/lib/format";
+import { postPath, withBasePath } from "@/app/lib/paths";
 import type { Post } from "@/app/types/Service";
 import { ErrorState, Loading } from "@/components/ui/States";
 import type { RootState } from "@/store/store";
@@ -78,7 +79,7 @@ export default function PostDetail({
               <Image
                 className="block h-auto w-full rounded-[.7rem]"
                 unoptimized
-                src={src}
+                src={withBasePath(src)}
                 width={1200}
                 height={900}
                 sizes="(max-width: 700px) 100vw, 800px"
@@ -92,7 +93,7 @@ export default function PostDetail({
             {post.is_owner && (
               <Link
                 className="button button-secondary button-small"
-                href={"/community/" + id + "/edit"}>
+                href={postPath(id, true)}>
                 <LuPenLine/>
                 수정
               </Link>

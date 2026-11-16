@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { api, errorMessage, json } from "@/app/lib/api";
 import { today } from "@/app/lib/format";
+import { withBasePath } from "@/app/lib/paths";
 import type { RestaurantChoice, UploadedFile, Visit } from "@/app/types/Service";
 import RestaurantSelect from "@/components/ui/RestaurantSelect";
 
@@ -107,7 +108,7 @@ export default function VisitForm({
         <div className="mt-[.8rem] flex flex-wrap items-center gap-2">
           <a
             className="attachment"
-            href={"/api/uploads/" + receipt}
+            href={withBasePath("/api/uploads/" + receipt)}
             target="_blank"
             rel="noreferrer">
             첨부된 영수증 보기

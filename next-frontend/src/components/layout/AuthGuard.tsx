@@ -8,21 +8,25 @@ import { ErrorState, Loading } from "@/components/ui/States";
 
 export default function AuthGuard({
   children,
-  addressSetup = false
+  addressSetup = false,
+  adminOnly = false
 }: {
   children: React.ReactNode;
   addressSetup?: boolean;
+  adminOnly?: boolean;
 }) {
   const { status, error, user } = useSelector((state: RootState) => state.auth);
   const router = useRouter();
   const destination =
     status === "anonymous"
       ? "/"
-      : status === "authenticated" && !!user?.address_setup_pending !== addressSetup
-        ? user?.address_setup_pending
-          ? "/onboarding/address"
-          : "/explore"
-        : null;
+      : status === "authenticated" && adminOnly && user?.role !== "ADMIN"
+        ? "/mypage"
+        : status === "authenticated" && !!user?.address_setup_pending !== addressSetup
+          ? user?.address_setup_pending
+            ? "/onboarding/address"
+            : "/explore"
+          : null;
   useEffect(() => {
     if (destination) router.replace(destination);
   }, [destination, router]);

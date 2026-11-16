@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
@@ -14,6 +14,7 @@ import {
 } from "react-icons/lu";
 import { RiKakaoTalkFill } from "react-icons/ri";
 import { api, errorMessage } from "@/app/lib/api";
+import { withBasePath } from "@/app/lib/paths";
 import type { RootState } from "@/store/store";
 import { useToast } from "@/components/ui/ToastProvider";
 
@@ -89,10 +90,11 @@ export default function Home() {
         mobile:bg-cream mobile:pb-6">
           <div
             className="absolute inset-0
-            bg-[linear-gradient(90deg,#f5f2e8_4%,#f5f2e8eb_23%,#f5f2e840_49%,transparent_65%),url('/images/nowon-alley.webp')]
+            bg-[linear-gradient(90deg,#f5f2e8_4%,#f5f2e8eb_23%,#f5f2e840_49%,transparent_65%),var(--hero-image)]
             bg-cover bg-right bg-no-repeat tablet:bg-center mobile:h-[420px]
-            mobile:bg-[linear-gradient(0deg,var(--color-cream),#f8f6ef00_40%),url('/images/nowon-alley.webp')]
+            mobile:bg-[linear-gradient(0deg,var(--color-cream),#f8f6ef00_40%),var(--hero-image)]
             mobile:bg-position-[64%_40%]"
+            style={{ "--hero-image": `url("${withBasePath("/images/nowon-alley.webp")}")` } as CSSProperties}
             role="img"
             aria-label="초록빛 골목과 따뜻한 동네 식당, 정갈한 한 끼를 그린 일러스트"
           />

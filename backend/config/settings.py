@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from sqlalchemy import URL
@@ -30,7 +31,7 @@ class Settings:
   frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
   kakao_rest_api_key: str = os.getenv("KAKAO_REST_API_KEY", "")
   kakao_client_secret: str = os.getenv("KAKAO_CLIENT_SECRET", "")
-  kakao_redirect_uri: str = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:3000/api/auth/kakao/callback")
+  kakao_redirect_uri: str = os.getenv("KAKAO_REDIRECT_URI", frontend_url + "/api/auth/kakao/callback")
   kakao_local_key: str = os.getenv("KAKAO_LOCAL_REST_API_KEY", "")
   kakao_storage_allowed: bool = os.getenv("KAKAO_PLACE_STORAGE_ALLOWED", "false").lower() == "true"
   kakao_mobility_key: str = os.getenv("KAKAO_MOBILITY_REST_API_KEY", "")
@@ -41,6 +42,11 @@ class Settings:
   include_demo: bool = os.getenv("INCLUDE_DEMO_DATA", "false").lower() == "true"
   uploads_dir: Path = Path(os.getenv("UPLOADS_DIR", str(ROOT / "uploads")))
   menu_max_age_days: int = int(os.getenv("DATA_MAX_AGE_DAYS", "30"))
+
+  @property
+  def frontend_origin(self) -> str:
+    url = urlsplit(self.frontend_url)
+    return f"{url.scheme}://{url.netloc}"
 
 
 settings = Settings()

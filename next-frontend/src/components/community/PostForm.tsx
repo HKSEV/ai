@@ -6,6 +6,7 @@ import Link from "next/link";
 import { LuArrowLeft, LuImagePlus, LuX } from "react-icons/lu";
 import { api, errorMessage, json } from "@/app/lib/api";
 import { today } from "@/app/lib/format";
+import { postPath } from "@/app/lib/paths";
 import useApiQuery from "@/app/lib/useApiQuery";
 import type {
   PageResult,
@@ -86,7 +87,7 @@ export default function PostForm({ initial }: { initial?: Post }) {
         })
       );
       toast(initial ? "이야기를 수정했어요." : "이야기를 남겼어요.");
-      router.push("/community/" + response.id);
+      router.push(postPath(response.id));
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -97,7 +98,7 @@ export default function PostForm({ initial }: { initial?: Post }) {
     <div className="post-page">
       <Link
         className="back-link"
-        href={initial ? "/community/" + initial.id : "/community"}>
+        href={initial ? postPath(initial.id) : "/community"}>
         <LuArrowLeft/>
         이야기로 돌아가기
       </Link>
