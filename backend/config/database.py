@@ -16,7 +16,7 @@ def create_database_engine(url):
     return create_engine(url, pool_pre_ping=True, pool_recycle=1800, connect_args={
       "connect_timeout": 5, "read_timeout": 30, "write_timeout": 30,
     })
-  if settings.environment == "test" and url.startswith("sqlite:"):
+  if url.startswith("sqlite:"):
     engine = create_engine(url, connect_args={"check_same_thread": False})
     @event.listens_for(engine, "connect")
     def enable_foreign_keys(connection, _record):
