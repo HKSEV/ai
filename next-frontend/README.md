@@ -2,14 +2,52 @@
 
 Next.js App Router · TypeScript · Redux Toolkit · React Icons · React Markdown.
 
-전체 서비스 초기 설정과 환경변수는 [루트 README](../README.md)를 참고하세요. 이 폴더의 `.env`에 `BACKEND_URL`과 `KAKAO_JAVASCRIPT_KEY`를 설정하세요.
+## 로컬 실행
+
+이 폴더의 `.env.example`을 `.env`로 복사하세요. `NEXT_PUBLIC_API_URL=http://localhost:8000`을 사용하고 지도에 사용할 `KAKAO_JAVASCRIPT_KEY`를 설정하세요. FastAPI와 DB 설정은 [루트 README](../README.md)를 참고하세요.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-루트 페이지는 소개 화면입니다. 처음 로그인한 회원은 `/onboarding/address`에서 기본 주소를 저장합니다. `/explore`·`/community`·`/mypage`는 서버 세션 확인 후 접근합니다. `/api` 요청은 Next.js rewrite로 FastAPI에 전달합니다.
+`http://localhost:3000/group/one/3/`에서 접속하세요. 처음 로그인한 회원은 `/group/one/3/onboarding/address/`에서 기본 주소를 저장합니다. 브라우저가 세션을 확인한 뒤 탐색·커뮤니티·마이페이지·관리자 화면을 표시합니다. FastAPI는 관리자 API마다 권한을 검사합니다.
+
+## /group/one/3 정적 배포
+
+배포 환경에 맞게 이 폴더의 `.env`를 설정하고 빌드하세요. Render의 FastAPI에 직접 연결하는 예시입니다.
+
+```dotenv
+NEXT_PUBLIC_API_URL=https://ai-pzdk.onrender.com
+KAKAO_JAVASCRIPT_KEY=
+```
+
+```bash
+npm ci
+npm run build
+```
+
+`out/` **안의 내용 전체**를 웹 호스트의 `/group/one/3/`에 올리세요. `index.html`, `_next/`, `images/`와 각 페이지 폴더를 같은 구조로 배치하세요. 로컬에서 미리 보려면 동일한 `group/one/3/` 구조를 만든 뒤 `group` 폴더의 상위 디렉터리를 HTTP 서버로 제공하세요. 폴더 주소는 해당 폴더의 `index.html`을 제공해야 합니다.
+
+`NEXT_PUBLIC_API_URL`과 카카오 JavaScript 키는 빌드할 때 브라우저 코드에 포함됩니다. 두 값 중 하나를 바꾸면 다시 빌드하고 `out/`을 배포하세요. JavaScript 키에는 실제 프론트 웹 도메인을 등록하고, 카카오 REST 키와 Client Secret은 백엔드 환경변수에 설정하세요.
+
+Render의 백엔드에는 다음 값을 설정하세요. `FRONTEND_URL`의 프로토콜과 호스트는 브라우저에서 실제로 접속하는 주소와 일치해야 합니다. 프론트가 HTTPS로 열리면 `FRONTEND_URL`에도 `https://`를 사용하세요.
+
+```dotenv
+FRONTEND_URL=http://heartbreakkid.co.kr/group/one/3
+KAKAO_REDIRECT_URI=https://ai-pzdk.onrender.com/api/auth/kakao/callback
+COOKIE_SECURE=true
+```
+
+카카오 디벨로퍼스에 `KAKAO_REDIRECT_URI`와 같은 주소를 등록하세요. `/api/status`에서 API 연결 상태를 확인할 수 있습니다. 로그인 전 `/api/auth/me`는 `401`을 반환합니다.
+
+같은 출처에서 API를 제공할 경우 `NEXT_PUBLIC_API_URL`을 비운 뒤 빌드하세요. 웹 호스트에서 `/group/one/3/api/*`를 FastAPI의 `/api/*`로 전달하고, `KAKAO_REDIRECT_URI`에는 프론트와 같은 출처의 `/group/one/3/api/auth/kakao/callback` 전체 주소를 입력하세요. 정적 파일의 HTTP 보안 헤더는 웹 호스트에서 설정하세요.
+
+프론트와 API의 사이트가 다르면 Chrome 시크릿 창의 서드 파티 쿠키 차단으로 로그인이 제한될 수 있습니다. 시크릿 창까지 지원하려면 프론트와 API를 같은 HTTPS 사이트의 도메인으로 운영하거나 위의 동일 출처 API 구성을 사용하세요. [Chrome의 쿠키 설정](https://support.google.com/chrome/answer/95647?hl=ko)
+
+커뮤니티 상세와 수정 주소는 각각 `/group/one/3/community/detail/?id=42`, `/group/one/3/community/edit/?id=42`입니다. 전역 폰트는 눈누에서 제공하는 G마켓 산스를 사용합니다. [글꼴 정보](https://noonnu.cc/font_page/366)
+
+## 검사
 
 ```bash
 npm run lint
@@ -17,43 +55,3 @@ npm test
 npx tsc --noEmit
 npm run build
 ```
-
-`BACKEND_URL`은 로컬 개발과 Next.js 서버에서 사용합니다. `KAKAO_JAVASCRIPT_KEY`는 카카오 지도를 표시하기 위해 빌드 시 브라우저에 공개합니다. 카카오 REST 키와 Client Secret은 백엔드에 설정하세요. 전역 폰트는 눈누에서 제공하는 [G마켓 산스](https://noonnu.cc/font_page/366)를 사용합니다. 사진은 로그인 쿠키를 사용하는 원본 URL에서 불러옵니다.
-
-## /group/one/3 정적 배포
-
-`npm run build`의 결과는 `out/`에 생성됩니다. `out/`의 내용 전체를 웹 서버의 `/group/one/3/`에 배포하고, 같은 도메인의 `/group/one/3/api/`를 FastAPI의 `/api/`로 프록시하세요. API 요청과 업로드 파일에 배포 경로를 적용합니다.
-
-예시 도메인이 `https://example.com`이라면 백엔드에 다음 값을 설정하세요. `KAKAO_REDIRECT_URI`와 같은 주소를 카카오 디벨로퍼스에도 등록하세요.
-
-```dotenv
-FRONTEND_URL=https://example.com/group/one/3
-KAKAO_REDIRECT_URI=https://example.com/group/one/3/api/auth/kakao/callback
-COOKIE_SECURE=true
-```
-
-Nginx를 사용하고 `out/`의 내용을 `/srv/www/group/one/3/`에 배치했다면 `server` 블록에 다음과 같이 설정할 수 있습니다.
-
-```nginx
-location = /group/one/3 {
-  return 308 /group/one/3/$is_args$args;
-}
-
-location /group/one/3/api/ {
-  client_max_body_size 6m;
-  proxy_pass http://127.0.0.1:8000/api/;
-}
-
-location /group/one/3/ {
-  root /srv/www;
-  index index.html;
-  try_files $uri $uri/ =404;
-  add_header X-Content-Type-Options nosniff always;
-  add_header Referrer-Policy strict-origin-when-cross-origin always;
-  add_header X-Frame-Options DENY always;
-}
-```
-
-커뮤니티 상세와 수정은 각각 `/community/detail/?id=42`, `/community/edit/?id=42`를 사용합니다. 관리자 화면은 브라우저에서 로그인과 역할을 확인한 뒤 표시하고 FastAPI는 관리자 API마다 권한을 검사합니다.
-
-`npm run dev`와 Docker Compose는 기존 루트 경로의 Next.js 서버를 사용합니다. Docker 없이 Next.js 서버 빌드를 실행하려면 빌드와 실행 환경 모두에 `NOWON_NEXT_SERVER=true`를 설정한 뒤 `npm run build`와 `npm run start`를 실행하세요.

@@ -52,7 +52,7 @@ export default function Home() {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has("login_error")) {
       toast("카카오 로그인을 완료하지 못했어요. 설정을 확인한 뒤 다시 시도해 주세요.");
-      window.history.replaceState(null, "", "/");
+      window.history.replaceState(null, "", window.location.pathname);
     }
   }, [toast]);
   const login = async () => {

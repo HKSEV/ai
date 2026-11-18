@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
@@ -47,6 +48,10 @@ class Settings:
   def frontend_origin(self) -> str:
     url = urlsplit(self.frontend_url)
     return f"{url.scheme}://{url.netloc}"
+
+  @property
+  def cookie_samesite(self) -> Literal["lax", "none"]:
+    return "none" if self.cookie_secure else "lax"
 
 
 settings = Settings()

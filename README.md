@@ -1,6 +1,6 @@
 # 노원맛집산책
 
-AI와 대화하며 취향·지역·예산에 맞는 노원구 음식점을 찾는 서비스입니다. 기존 FastAPI의 controller/service/dto/config 구조와 Next.js App Router·TypeScript·Redux 패턴을 유지하고 Streamlit 화면과 의존성을 제거했습니다.
+AI와 대화하며 취향·지역·예산에 맞는 노원구 음식점을 찾는 서비스입니다. Next.js App Router·TypeScript·Redux로 구성한 프론트엔드는 정적 파일로 배포하며, FastAPI가 인증과 서비스 API를 제공합니다.
 
 ## 구현 내용
 
@@ -26,7 +26,7 @@ AI와 대화하며 취향·지역·예산에 맞는 노원구 음식점을 찾�
 | `next-frontend/src/store` | 로그인 사용자와 현재 대화 Redux 상태 |
 | `backend/controller` | 인증·회원·대화·음식점·커뮤니티·첨부 파일·관리자 API |
 | `backend/service` | 권한·추천·프로필·메뉴 계산·외부 제공처 계약 |
-| `backend/entity` | MySQL SQLAlchemy 모델 15개 |
+| `backend/entity` | MySQL·SQLite에서 사용하는 SQLAlchemy 모델 |
 | `backend/scripts` | DB 생성, 이용 가능한 데이터 등록, 미사용 파일 정리 |
 | `docs/schema.sql` | MySQL DDL |
 | `docs/VERIFICATION.md` | 실행한 검증과 실제 외부 연동의 한계 |
@@ -35,10 +35,10 @@ AI와 대화하며 취향·지역·예산에 맞는 노원구 음식점을 찾�
 
 ## 로컬 실행
 
-Python **3.12 이상**, Node.js **22 이상**, uv, MySQL **8.4**가 필요합니다. 실제 값은 저장소에 올리지 않습니다.
+Python **3.12 이상**, Node.js **22 이상**, uv가 필요합니다. MySQL을 사용하는 경우 **8.4**를 준비하세요.
 
-1. 아래 환경변수 표에 따라 `backend/.env`와 `next-frontend/.env`를 설정하세요.
-2. MySQL 관리자 계정에서 DB와 앱 계정을 만듭니다. 아래 비밀번호는 실제 값으로 교체합니다.
+1. `backend/.env.example`과 `next-frontend/.env.example`을 각 폴더의 `.env`로 복사하고 사용할 키를 설정하세요.
+2. 사용할 DB를 설정하세요. SQLite는 `backend/.env`에 `DATABASE_URL=sqlite:///./nowon.db`를 설정합니다. MySQL은 아래 명령으로 DB와 앱 계정을 만든 뒤 `backend/.env`의 `DB_PASSWORD`에 같은 비밀번호를 설정하세요.
 
 ```sql
 CREATE DATABASE nowon_food CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -46,7 +46,7 @@ CREATE USER 'nowon'@'localhost' IDENTIFIED BY 'YOUR_APP_PASSWORD';
 GRANT ALL PRIVILEGES ON nowon_food.* TO 'nowon'@'localhost';
 ```
 
-3. 백엔드:
+3. 백엔드를 실행하세요.
 
 ```bash
 cd backend
@@ -55,7 +55,7 @@ uv run python -m scripts.init_db
 uv run uvicorn main:app --reload --port 8000
 ```
 
-4. 별도 터미널에서 프론트엔드:
+4. 별도 터미널에서 프론트엔드를 실행하세요.
 
 ```bash
 cd next-frontend
@@ -63,11 +63,11 @@ npm ci
 npm run dev
 ```
 
-`http://localhost:3000`으로 접속합니다. 프론트의 `/api/*` 요청은 Next.js rewrite를 통해 백엔드로 전달됩니다. 쿠키 호스트를 일치시키기 위해 localhost와 127.0.0.1을 브라우저에서 섞어 사용하지 마세요. API 명세는 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다. 변경 API를 직접 호출할 때는 `X-Requested-With: nowon-walk` 헤더와 로그인 쿠키가 필요합니다.
+`http://localhost:3000/group/one/3/`으로 접속하세요. 브라우저는 `NEXT_PUBLIC_API_URL`에 지정한 `http://localhost:8000`으로 API 요청을 보냅니다. 프론트와 API 모두 브라우저 주소에 `localhost`를 사용하세요. API 명세는 `http://localhost:8000/docs`에서 확인할 수 있습니다. 변경 API를 직접 호출할 때는 `X-Requested-With: nowon-walk` 헤더와 로그인 쿠키가 필요합니다.
 
 `npm run build`로 만든 정적 파일을 `/group/one/3/`에 배포할 때는 [정적 배포 설정](next-frontend/README.md#groupone3-정적-배포)을 참고하세요.
 
-`init_db`는 새 데이터베이스에 테이블을 생성합니다. 기존 DB는 가입 요청을 중단한 상태에서 새 백엔드를 시작하기 전에 다음 마이그레이션을 실행하세요.
+`init_db`는 설정한 데이터베이스에 테이블을 생성합니다. 관리자 기능 도입 전의 DB는 가입 요청을 중단한 상태에서 새 백엔드를 시작하기 전에 다음 마이그레이션을 실행하세요.
 
 ```bash
 cd backend
@@ -78,15 +78,15 @@ uv run python -m scripts.migrate_admin
 
 ## Docker Compose
 
-루트 `.env`에 MySQL 비밀번호 2개와 `KAKAO_JAVASCRIPT_KEY`를 설정하세요. `backend/.env`에 외부 서비스 키를 입력하세요.
+루트 `.env`에 `MYSQL_ROOT_PASSWORD`와 `MYSQL_PASSWORD`를 설정하세요. `backend/.env`에 로그인과 외부 서비스 환경변수를 설정하세요.
 
 ```bash
 docker compose up -d db
 docker compose run --rm init
-docker compose up --build -d backend frontend
+docker compose up --build -d backend
 ```
 
-DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 localhost:3000입니다. Compose의 DB 비밀번호는 루트 `MYSQL_PASSWORD`가 사용되며 `backend/.env`의 호스트·비밀번호를 컨테이너 연결에 맞게 덮어씁니다.
+Compose는 MySQL과 FastAPI를 실행하고 DB와 업로드를 각각 named volume에 보관합니다. FastAPI는 `http://localhost:8000`에서 접속할 수 있습니다. 로컬 프론트엔드는 위의 `npm run dev`로 실행하세요. Compose는 루트 `MYSQL_PASSWORD`와 컨테이너 DB 주소를 사용합니다.
 
 기존 MySQL 볼륨을 업데이트하려면 백엔드를 중지한 뒤 `docker compose run --rm --build init python -m scripts.migrate_admin`을 실행하세요.
 
@@ -102,20 +102,21 @@ DB와 업로드는 각각 named volume에 보관됩니다. 프론트 주소는 l
 | 위치 | 변수 | 용도 |
 | --- | --- | --- |
 | 루트 `.env` | `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD` | Compose 관리자/앱 DB 비밀번호 |
-| 백엔드 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | MySQL 연결. `DATABASE_URL`이 있으면 우선 사용 |
-| 백엔드 | `FRONTEND_URL` | 서비스 공개 주소. 하위 경로로 배포하면 경로까지 입력합니다. 기본 http://localhost:3000 |
+| 백엔드 | `DATABASE_URL` | MySQL 또는 SQLite 연결 주소. 설정하면 `DB_*`보다 우선 사용 |
+| 백엔드 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | MySQL 연결 정보 |
+| 백엔드 | `FRONTEND_URL` | 로그인 후 돌아갈 프론트 주소. `/group/one/3`까지 입력 |
 | 백엔드 | `KAKAO_REST_API_KEY` | 카카오 로그인 REST API 키 |
 | 백엔드 | `KAKAO_CLIENT_SECRET` | 카카오 앱에서 Client Secret을 사용한다면 설정 |
-| 백엔드 | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소. 기본 `FRONTEND_URL` + `/api/auth/kakao/callback` |
+| 백엔드 | `KAKAO_REDIRECT_URI` | 카카오에 등록한 공개 API의 `/api/auth/kakao/callback` 전체 주소 |
 | 백엔드 | `KAKAO_LOCAL_REST_API_KEY` | 실제 장소 검색과 텍스트 출발지의 좌표 조회 |
 | 백엔드 | `KAKAO_PLACE_STORAGE_ALLOWED` | 저장·재이용 권한 확인 후 true. 기본 false |
 | 백엔드 | `KAKAO_MOBILITY_REST_API_KEY` | 자동차 길찾기 API 이용 권한을 부여받은 앱의 REST API 키 |
 | 백엔드 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google GenAI 인증 및 사용 가능한 구조화 출력 지원 모델 ID |
-| 백엔드 | `SESSION_DAYS`, `COOKIE_SECURE` | 기본 14일, HTTPS 운영 시 COOKIE_SECURE=true |
+| 백엔드 | `SESSION_DAYS`, `COOKIE_SECURE` | 세션 기본 14일. HTTPS API는 `COOKIE_SECURE=true`, HTTP 로컬 개발은 `false` |
 | 백엔드 | `INCLUDE_DEMO_DATA` | 개발 예시 노출 여부. 기본 false |
 | 백엔드 | `DATA_MAX_AGE_DAYS` | 메뉴·영업시간 신뢰 기한. 기본 30일 |
 | 백엔드 | `UPLOADS_DIR` | 기본 backend/uploads. 운영 시 영속 볼륨 |
-| 프론트 | `BACKEND_URL` | 로컬 개발·Next.js 서버 모드의 백엔드 주소. 정적 배포에서는 웹 서버에서 프록시를 설정합니다. |
+| 프론트 | `NEXT_PUBLIC_API_URL` | 브라우저가 요청할 FastAPI의 공개 주소. 빌드할 때 설정 |
 | 프론트 | `KAKAO_JAVASCRIPT_KEY` | 지도에 사용하는 카카오 JavaScript 키. 빌드 시 브라우저에 공개 |
 
 Gemini API 키에서 사용할 수 있는 모델 ID를 설정하세요. 카카오 REST 키, Client Secret, Gemini 키와 DB 연결 정보는 백엔드 환경변수에 설정하세요.
@@ -207,6 +208,6 @@ npx tsc --noEmit
 npm run build
 ```
 
-PowerShell은 `$env:APP_ENV="test"`로 설정 후 Python 검사를 실행합니다. 실제 MySQL 8.4.13에서도 API/저장 테스트와 36개 통합 확인 항목이 통과했습니다. [MySQL 검증 기록](docs/mysql-verification.md)의 전용 테스트 DB 설정으로 다시 실행할 수 있습니다. GitHub Actions의 전용 MySQL 8.4.13 DB 검증과 프론트 검사도 통과했습니다. SQLite 테스트는 오직 APP_ENV=test에서 허용됩니다. 상세 결과와 실제 외부 API 및 화면 검증 범위는 [검증 기록](docs/VERIFICATION.md)을 참고하세요.
+PowerShell에서는 `$env:APP_ENV="test"`로 설정한 뒤 Python 검사를 실행하세요. 백엔드 테스트는 기본적으로 임시 SQLite DB를 사용합니다. 실제 MySQL 검증을 재실행하려면 [MySQL 검증 기록](docs/mysql-verification.md)의 전용 테스트 DB 설정을 참고하세요. 정적 빌드와 화면 검증 결과는 [검증 기록](docs/VERIFICATION.md)에서 확인할 수 있습니다.
 
 공식 연동 문서: [카카오 로그인](https://developers.kakao.com/docs/ko/kakaologin/rest-api), [카카오 로컬](https://developers.kakao.com/docs/ko/local/dev-guide), [Gemini 구조화 출력](https://ai.google.dev/gemini-api/docs/structured-output?hl=ko).

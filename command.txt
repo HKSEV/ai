@@ -1,17 +1,22 @@
-# backend
+# backend (backend/.env 설정 후)
 cd backend
-uv sync
+uv sync --frozen
 uv run python -m scripts.init_db
 uv run uvicorn main:app --reload --port 8000
 
-# frontend (새 터미널)
+# frontend (새 터미널, next-frontend/.env 설정 후)
 cd next-frontend
 npm ci
 npm run dev
+# http://localhost:3000/group/one/3/
+
+# 정적 배포 (next-frontend, 배포용 변수 설정 후)
+npm run build
+# out/ 내용을 웹 호스트의 /group/one/3/에 올립니다.
 
 # Docker Compose (루트, .env 및 backend/.env 설정 후)
 docker compose up -d db
 docker compose run --rm init
-docker compose up --build -d backend frontend
+docker compose up --build -d backend
 
 # 초기 설정과 실제 연동 항목은 README.md 참고

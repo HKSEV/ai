@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.get("/kakao/authorize")
 def authorize(response: Response, db=Depends(get_db)):
   state, url = auth_service.authorize(db)
-  response.set_cookie(auth_service.STATE_COOKIE, state, max_age=600, httponly=True, secure=settings.cookie_secure, samesite="none", path="/")
+  response.set_cookie(auth_service.STATE_COOKIE, state, max_age=600, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
   return {"authorization_url": url}
 
 
@@ -36,10 +36,10 @@ def callback(
     token = auth_service.create_session(db, user)
     destination = "/onboarding/address" if user.address_setup_pending else "/explore"
     response = RedirectResponse(settings.frontend_url + destination, status_code=303)
-    response.set_cookie(auth_service.SESSION_COOKIE, token, max_age=settings.session_days * 86400, httponly=True, secure=settings.cookie_secure, samesite="none", path="/")
+    response.set_cookie(auth_service.SESSION_COOKIE, token, max_age=settings.session_days * 86400, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
   except HTTPException:
     response = RedirectResponse(settings.frontend_url + "/?login_error=1", status_code=303)
-  response.delete_cookie(auth_service.STATE_COOKIE, path="/")
+  response.delete_cookie(auth_service.STATE_COOKIE, path="/", httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite)
   return response
 
 
@@ -54,4 +54,4 @@ def logout(response: Response, token: str | None = Cookie(default=None, alias=au
   if session:
     db.delete(session)
     db.commit()
-  response.delete_cookie(auth_service.SESSION_COOKIE, path="/")
+  response.delete_cookie(auth_service.SESSION_COOKIE, path="/", httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite)

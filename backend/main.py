@@ -40,7 +40,7 @@ async def protect_requests(request: Request, call_next):
 async def handle_http_error(request, exception):
   response = await http_exception_handler(request, exception)
   if exception.status_code == 401:
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite)
   return response
 
 

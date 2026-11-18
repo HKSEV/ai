@@ -70,6 +70,20 @@ test("landing keeps login on failure and reports configuration error", async () 
   assert.equal(screen.getByRole("button", { name: "카카오로 시작하기" }).disabled, false);
 });
 
+test("login callback error keeps the deployed home path", () => {
+  const previous = window.location.href;
+  window.history.replaceState(null, "", "/group/one/3/?login_error=1");
+  try {
+    const Home = require("../src/app/page.tsx").default;
+    setup(Home, {}, false);
+    assert.ok(screen.getByText(/카카오 로그인을 완료하지 못했어요/));
+    assert.equal(window.location.pathname, "/group/one/3/");
+    assert.equal(window.location.search, "");
+  } finally {
+    window.history.replaceState(null, "", previous);
+  }
+});
+
 test("anonymous guard redirects and never renders private content", async () => {
   const AuthGuard = require("../src/components/layout/AuthGuard.tsx").default;
   setup(AuthGuard, { children: React.createElement("p", null, "개인 주소") }, false);
