@@ -9,4 +9,4 @@ RUN useradd --uid 10001 --create-home appuser && mkdir -p /data/uploads && chown
 ENV PATH="/app/.venv/bin:$PATH" UPLOADS_DIR=/data/uploads
 USER appuser
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/sh", "-c", "python -m scripts.init_db && exec uvicorn main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
