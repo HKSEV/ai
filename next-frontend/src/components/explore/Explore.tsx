@@ -262,7 +262,7 @@ export default function Explore() {
       setShowHistory(false);
       setOrigin("");
       setCoordinates(null);
-      setLocationMessage("");
+      setLocationMessage("출발지를 입력하지 않으면 기본 주소를 추천에 활용해요.");
     } catch (error) {
       toast(errorMessage(error));
     } finally {
@@ -577,7 +577,7 @@ export default function Explore() {
                 onChange={(event) => {
                   setOrigin(event.target.value);
                   setCoordinates(null);
-                  setLocationMessage("");
+                  setLocationMessage("출발지를 입력하지 않으면 기본 주소를 추천에 활용해요.");
                 }}
                 placeholder="동네·역명·출발지 입력 (선택)"
               />
