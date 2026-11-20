@@ -378,8 +378,8 @@ export default function Explore() {
             <p className="helper p-2">오늘의 첫 산책을 시작해 보세요.</p>
           )}
           <div
-            className="flex flex-col gap-1 tablet:grid tablet:grid-cols-3
-          mobile:grid-cols-2">
+            className="flex flex-col gap-1 tablet:grid tablet:grid-cols-2
+          mobile:grid-cols-1">
             {history.data?.items.map((item) => (
               <div
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center

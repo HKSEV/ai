@@ -78,7 +78,7 @@ export default function MyRecords({ onVisitsChanged }: { onVisitsChanged: () => 
     }
   };
   return (
-    <section className="surface mt-6 scroll-mt-24 mobile:mt-[1.2rem]" id="visit-records">
+    <section className="surface mt-6 mobile:mt-[1.2rem]" id="visit-records">
       <div className="section-heading mobile:items-start">
         <div>
           <h2 className="section-title">나의 산책 기록</h2>

@@ -103,14 +103,14 @@ function JourneyMap({
   return (
     <>
       <div
-        ref={element}
-        className="map-surface h-[clamp(15rem,42dvh,22rem)]"
-        role="region"
-        aria-label="나의 여정 지도"
-        hidden={!!error}
-      />
-      {error ? <p className="helper" role="status">{error}</p> :
-        !instance && <p className="helper" role="status">지도를 불러오는 중입니다.</p>}
+      ref={element}
+      className="map-surface h-[clamp(15rem,42dvh,22rem)]"
+      role="region"
+      aria-label="나의 여정 지도"
+      hidden={!!error}/>
+      {error ? <p className="helper" role="status">{error}</p> : !instance && (
+        <p className="helper" role="status">지도를 불러오는 중입니다.</p>
+      )}
     </>
   );
 }
