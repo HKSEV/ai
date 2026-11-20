@@ -79,6 +79,7 @@ class Address(Base):
   user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
   label: Mapped[str] = mapped_column(String(30))
   address: Mapped[str] = mapped_column(String(300))
+  detail_address: Mapped[str] = mapped_column(String(200), default="", server_default="")
   latitude: Mapped[float | None] = mapped_column(Float)
   longitude: Mapped[float | None] = mapped_column(Float)
   is_default: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -171,6 +172,7 @@ class Visit(Base):
   note: Mapped[str] = mapped_column(Text, default="")
   receipt_id: Mapped[str | None] = mapped_column(ForeignKey("uploads.id", ondelete="SET NULL"))
   verification_status: Mapped[str] = mapped_column(String(30), default="not_verified")
+  admin_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
   created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

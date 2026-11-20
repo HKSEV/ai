@@ -22,9 +22,6 @@ const authSlice = createSlice({
       state.status = "anonymous";
       state.error = null;
     },
-    completeAddressSetup: (state) => {
-      if (state.user) state.user.address_setup_pending = false;
-    },
     authError: (state, action: PayloadAction<string>) => {
       state.user = null;
       state.status = "error";
@@ -33,6 +30,5 @@ const authSlice = createSlice({
   }
 });
 
-export const { setUser, clearUser, completeAddressSetup, authError } =
-  authSlice.actions;
+export const { setUser, clearUser, authError } = authSlice.actions;
 export default authSlice.reducer;

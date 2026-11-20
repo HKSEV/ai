@@ -5,9 +5,10 @@ from sqlalchemy import select
 
 from config.database import get_db
 from dto.account import ProfileInput
-from dto.admin import PromptName, PromptRestore, PromptUpdate, RestaurantRemoval, RestaurantUpdate
-from entity.models import Restaurant, User
-from service import admin_service, profile_service, prompt_service
+from dto.admin import PromptName, PromptRestore, PromptUpdate, RestaurantRemoval, RestaurantUpdate, VisitVerification
+from dto.community import PostTextInput
+from entity.models import Post, Restaurant, User
+from service import admin_service, community_service, profile_service, prompt_service
 from service.auth_service import current_admin
 
 
@@ -56,6 +57,33 @@ def update_user(identity: int, data: ProfileInput, db=Depends(get_db)):
 @router.delete("/users/{identity}", status_code=204)
 def delete_user(identity: int, admin=Depends(current_admin), db=Depends(get_db)):
   admin_service.delete_user(db, admin, identity)
+
+
+@router.get("/users/{identity}/visits")
+def user_visits(identity: int, page: Page = 1, size: Size = 10, db=Depends(get_db)):
+  user = admin_service.get_user(db, identity, lock=False)
+  return profile_service.visits(db, user, page, size, include_private=False)
+
+
+@router.put("/users/{identity}/visits/{visit_id}/verification")
+def verify_visit(identity: int, visit_id: int, data: VisitVerification, admin=Depends(current_admin), db=Depends(get_db)):
+  return admin_service.set_visit_verification(db, admin, identity, visit_id, data.verified)
+
+
+@router.get("/posts")
+def posts(query: Search = "", page: Page = 1, size: Size = 15, admin=Depends(current_admin), db=Depends(get_db)):
+  return admin_service.list_records(db, select(Post).join(User), (Post.title, Post.content, User.nickname), query,
+                                    page, size, Post.id.desc(), lambda item: community_service.serialize_post(db, item, admin))
+
+
+@router.put("/posts/{identity}")
+def update_post(identity: int, data: PostTextInput, admin=Depends(current_admin), db=Depends(get_db)):
+  return community_service.update_post_as_admin(db, admin, identity, data)
+
+
+@router.delete("/posts/{identity}", status_code=204)
+def delete_post(identity: int, admin=Depends(current_admin), db=Depends(get_db)):
+  community_service.delete_post(db, admin, identity)
 
 
 @router.get("/restaurants")

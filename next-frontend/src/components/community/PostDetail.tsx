@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
 import { LuArrowLeft, LuPenLine } from "react-icons/lu";
-import useApiQuery from "@/app/lib/useApiQuery";
+import useApiQuery, { LIVE_REFRESH_INTERVAL } from "@/app/lib/useApiQuery";
 import { checkedTime } from "@/app/lib/format";
 import { postPath, withBasePath } from "@/app/lib/paths";
 import type { Post } from "@/app/types/Service";
@@ -21,7 +21,7 @@ export default function PostDetail({
   id: string;
   edit?: boolean;
 }) {
-  const query = useApiQuery<Post>("/api/posts/" + id);
+  const query = useApiQuery<Post>("/api/posts/" + id, edit ? 0 : LIVE_REFRESH_INTERVAL);
   const admin = useSelector((state: RootState) => state.auth.user?.role === "ADMIN");
   const router = useRouter();
   if (query.loading) return <Loading/>;
@@ -61,7 +61,7 @@ export default function PostDetail({
             <span>방문일 {post.visited_on}</span>
             <span className="badge">
               {post.verification_status === "verified"
-                ? "방문 인증 완료"
+                ? post.verification_reason || "방문 인증 완료"
                 : post.receipt_uploaded
                   ? "영수증 첨부 · 방문 미인증"
                   : "방문 미인증"}

@@ -74,8 +74,12 @@ body={'nickname':'노원검증곰','preferences':['한식'],'budget_min':5000,'b
 check('profile writes',first.put('/api/me',json=body).status_code==200)
 check('other account retains nickname',second.get('/api/auth/me').json()['nickname']!='노원검증곰')
 check('nickname collision rejected',second.put('/api/me',json=body).status_code==409)
-address=first.post('/api/me/addresses',json={'label':'집','address':'서울 노원구 공릉동 1','latitude':37.65,'longitude':127.06,'is_default':True}).json()
-check('address persisted',first.get('/api/me/addresses').json()[0]['address']=='서울 노원구 공릉동 1')
+onboarding={key:value for key,value in body.items() if key!='nickname'}
+onboarding['address']={'label':'집','address':'서울 노원구 공릉동 1','detail_address':'101동 203호','latitude':37.65,'longitude':127.06}
+result=first.put('/api/me/onboarding',json=onboarding)
+check('onboarding completed with preferences',result.status_code==200 and result.json()['completed'] and result.json()['user']['preferences']==['한식'])
+address=first.get('/api/me/addresses').json()[0]
+check('address and detail persisted',address['address']=='서울 노원구 공릉동 1' and address['detail_address']=='101동 203호' and address['is_default'])
 returning=login(first,'mysql-qa-1','/explore','walk@example.com')
 check('profile, role and onboarding survive session recreation',returning['nickname']=='노원검증곰' and returning['role']=='ADMIN')
 check('other user cannot read addresses',second.get('/api/me/addresses').json()==[])

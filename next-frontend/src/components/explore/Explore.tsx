@@ -17,7 +17,7 @@ import {
   LuTrash2
 } from "react-icons/lu";
 import { api, deleteConversation, errorMessage, json } from "@/app/lib/api";
-import useApiQuery from "@/app/lib/useApiQuery";
+import useApiQuery, { LIVE_REFRESH_INTERVAL } from "@/app/lib/useApiQuery";
 import { distanceLabel, money } from "@/app/lib/format";
 import { hasCoordinates, locationSupported } from "@/app/lib/kakaoMap";
 import type {
@@ -26,7 +26,8 @@ import type {
   ConversationSummary,
   Coordinates,
   MapLocation,
-  PageResult
+  PageResult,
+  RestaurantReviews
 } from "@/app/types/Service";
 import type { RootState } from "@/store/store";
 import {
@@ -113,7 +114,8 @@ async function savedPosition() {
 }
 
 export default function Explore() {
-  const { active, input, pending, outgoing } = useSelector((state: RootState) => state.chat);
+  const { active, input, pending, outgoing, optimisticKeys, latestReplyId } =
+    useSelector((state: RootState) => state.chat);
   const user = useSelector((state: RootState) => state.auth.user);
   const dispatch = useDispatch();
   const toast = useToast();
@@ -159,12 +161,14 @@ export default function Explore() {
     .find((message) => message.role === "assistant");
   const answerId = answer?.id;
   const results = answer?.recommendations || [];
-  const reviewedParams = new URLSearchParams(
+  const reviewParams = new URLSearchParams(
     results.map((item) => ["ids", String(item.id)])
   );
-  const { data: reviewedIds, reload: reloadReviewed } = useApiQuery<number[]>(
-    results.length ? "/api/restaurants/reviewed?" + reviewedParams : null
+  const { data: reviews, reload: reloadReviews } = useApiQuery<RestaurantReviews[]>(
+    results.length ? "/api/restaurants/reviews?" + reviewParams : null,
+    LIVE_REFRESH_INTERVAL
   );
+  const reviewsById = new Map(reviews?.map((review) => [review.id, review]));
   const selected = mapSelection?.answer === answerId ? mapSelection : null;
   const busy = !!pending || locating || opening || deleting;
   useEffect(() => {
@@ -173,12 +177,6 @@ export default function Explore() {
   useEffect(() => {
     if (resultsPanel.current) resultsPanel.current.scrollTop = 0;
   }, [answerId]);
-  useEffect(() => {
-    if (!answerId) return;
-    const refresh = () => reloadReviewed();
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, [answerId, reloadReviewed]);
   const setSearchPosition = (position: SearchLocation) => {
     if (position.isDefault) {
       setOrigin("");
@@ -259,6 +257,7 @@ export default function Explore() {
     try {
       const response = await api<Conversation>("/api/conversations/" + id);
       dispatch(setConversation(response));
+      reloadReviews();
       setShowHistory(false);
       setOrigin("");
       setCoordinates(null);
@@ -496,30 +495,37 @@ export default function Explore() {
                 </div>
               </div>
             )}
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={chatRow + (message.role === "user" ? " justify-end" : "")}>
-                {message.role === "assistant" && (
-                  <span className={messageAvatar}>
-                    <LuLeaf/>
-                  </span>
-                )}
-                <div className={`
-                  ${chatBubble} ${markdownBubble}
-                  ${message.role === "user"
+            {messages.map((message) => {
+              const key = typeof message.id === "number"
+                ? optimisticKeys[message.id] ?? message.id
+                : message.id;
+              const entering = typeof key === "string" || message.id === latestReplyId;
+              return (
+                <div
+                  key={key}
+                  className={`${chatRow} ${message.role === "user" ? "justify-end" : ""}
+                    ${entering ? "motion-safe:animate-enter" : ""}`}>
+                  {message.role === "assistant" && (
+                    <span className={messageAvatar}>
+                      <LuLeaf/>
+                    </span>
+                  )}
+                  <div className={`
+                    ${chatBubble} ${markdownBubble}
+                    ${message.role === "user"
                       ? "rounded-[.9rem_0_.9rem_.9rem] bg-[#e7ede1] text-forest-dark"
                       : assistantBubble}
-                `}>
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
-                  {"error" in message && message.error && message.id !== pending && (
-                    <p className="mt-2 text-[.72rem] text-[#9d4836]" role="alert">
-                      {message.error}
-                    </p>
-                  )}
+                  `}>
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                    {"error" in message && message.error && message.id !== pending && (
+                      <p className="mt-2 text-[.72rem] text-[#9d4836]" role="alert">
+                        {message.error}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {pending && !locating && (
               <div className={chatRow}>
                 <span className={messageAvatar}>
@@ -712,7 +718,7 @@ export default function Explore() {
                   key={item.id}
                   restaurant={item}
                   index={index}
-                  reviewed={reviewedIds?.includes(item.id)}
+                  reviews={reviewsById.get(item.id)}
                   selected={selected?.id === item.id}
                   onSelect={
                     answerId && hasCoordinates(item)

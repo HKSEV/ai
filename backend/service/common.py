@@ -8,8 +8,8 @@ def timestamp(value):
   return value.replace(tzinfo=timezone.utc).isoformat() if value else None
 
 
-def owned(db, model, identity, user_id):
-  item = db.get(model, identity)
+def owned(db, model, identity, user_id, *, lock=False):
+  item = db.get(model, identity, with_for_update=True if lock else None)
   if item is None or item.user_id != user_id:
     raise HTTPException(404, "항목을 찾을 수 없습니다.")
   return item

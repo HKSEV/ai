@@ -17,7 +17,7 @@ export default function ManagementList<T extends { id: number }>({
   searchLabel,
   render
 }: {
-  resource: "users" | "restaurants";
+  resource: "users" | "restaurants" | "posts";
   title: string;
   searchLabel: string;
   render: (item: T, actions: ListActions) => ReactNode;

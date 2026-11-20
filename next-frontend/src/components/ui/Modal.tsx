@@ -55,6 +55,7 @@ export default function Modal({
       aria-label={title}
       data-closing={closing || undefined}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         dismiss();
       }}

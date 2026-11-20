@@ -2,12 +2,12 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func, literal_column, or_, select
+from sqlalchemy import func, literal_column, or_, select, update
 
 from entity.models import ADMIN, AdminAction, Menu, Post, Restaurant, SearchRecord, Upload, User, Visit, utcnow
 from service.admin_audit import record_admin_action
-from service.common import page_result, timestamp
-from service.profile_service import serialize_user
+from service.common import owned, page_result, timestamp
+from service.profile_service import serialize_visit
 from service.upload_service import remove_files
 
 
@@ -78,11 +78,23 @@ def get_restaurant(db, identity, *, lock=False):
   return item
 
 
-def get_user(db, identity):
-  user = db.scalar(select(User).where(User.id == identity).with_for_update())
+def get_user(db, identity, *, lock=True):
+  user = db.get(User, identity, with_for_update=True if lock else None)
   if user is None:
     raise HTTPException(404, "사용자를 찾을 수 없습니다.")
   return user
+
+
+def set_visit_verification(db, admin, identity, visit_id, verified):
+  result = db.execute(update(Visit).where(
+    Visit.id == visit_id, Visit.user_id == identity, Visit.admin_verified == (not verified),
+  ).values(admin_verified=verified))
+  visit = owned(db, Visit, visit_id, identity, lock=True)
+  if result.rowcount == 1:
+    label = f"{db.get(Restaurant, visit.restaurant_id).name} · {visit.visited_on}"
+    record_admin_action(db, admin, "visit_verify" if verified else "visit_unverify", visit.id, label)
+    db.commit()
+  return serialize_visit(db, visit, include_private=False)
 
 
 def delete_user(db, admin, identity):

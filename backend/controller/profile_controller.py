@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query
 
 from config.database import get_db
-from dto.account import AddressInput, ProfileInput, VisitInput
+from dto.account import AddressInput, OnboardingInput, ProfileInput, VisitInput
 from entity.models import Visit
 from service.auth_service import current_user
 from service.common import owned
@@ -15,6 +15,11 @@ router = APIRouter(prefix="/api/me", tags=["profile"])
 @router.put("")
 def profile(data: ProfileInput, user=Depends(current_user), db=Depends(get_db)):
   return service.update_profile(db, user, data)
+
+
+@router.put("/onboarding")
+def onboarding(data: OnboardingInput, user=Depends(current_user), db=Depends(get_db)):
+  return service.complete_onboarding(db, user, data)
 
 
 @router.get("/addresses")

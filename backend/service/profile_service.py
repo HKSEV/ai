@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from entity.models import Address, Restaurant, Upload, User, Visit
@@ -31,32 +31,53 @@ def update_profile(db, user, data):
 
 
 def serialize_address(item):
-  return {key: getattr(item, key) for key in ["id", "label", "address", "latitude", "longitude", "is_default"]}
+  return {key: getattr(item, key) for key in ["id", "label", "address", "detail_address", "latitude", "longitude", "is_default"]}
 
 
-def addresses(db, user):
-  return db.scalars(select(Address).where(Address.user_id == user.id).order_by(Address.is_default.desc(), Address.id)).all()
+def addresses(db, user, *, lock=False):
+  query = select(Address).where(Address.user_id == user.id).order_by(Address.is_default.desc(), Address.id)
+  return db.scalars(query.with_for_update() if lock else query).all()
 
 
-def save_address(db, user, data, identity=None):
-  db.scalar(select(User).where(User.id == user.id).with_for_update())
-  existing = addresses(db, user)
+def write_address(db, user, data, identity=None, *, replace_default=False):
+  existing = addresses(db, user, lock=True)
+  if replace_default:
+    identity = next((item.id for item in existing if item.is_default), None)
   item = owned(db, Address, identity, user.id) if identity else Address(user_id=user.id)
   if identity is None and len(existing) >= 10:
     raise HTTPException(422, "주소는 최대 10개까지 등록할 수 있습니다.")
   was_default = bool(item.is_default)
   values = data.model_dump()
+  if data.detail_address is None:
+    values.pop("detail_address")
   values["is_default"] = data.is_default or not existing or was_default
   if values["is_default"]:
     for entry in existing:
       entry.is_default = False
   for key, value in values.items():
     setattr(item, key, value)
-  if item.is_default and item.latitude is not None and item.longitude is not None:
-    user.address_setup_pending = False
   db.add(item)
+  return item
+
+
+def save_address(db, user, data, identity=None):
+  db.scalar(select(User).where(User.id == user.id).with_for_update())
+  item = write_address(db, user, data, identity)
   db.commit()
   return serialize_address(item)
+
+
+def complete_onboarding(db, user, data):
+  # Claim completion and save the address in the same transaction on SQLite and MySQL.
+  result = db.execute(update(User).where(User.id == user.id, User.address_setup_pending.is_(True)).values(
+    **data.model_dump(exclude={"address"}), address_setup_pending=False,
+  ))
+  completed = result.rowcount == 1
+  if completed:
+    write_address(db, user, data.address.model_copy(update={"is_default": True}), replace_default=True)
+  db.commit()
+  db.refresh(user)
+  return {"user": serialize_user(user), "completed": completed}
 
 
 def delete_address(db, user, identity):
@@ -72,25 +93,34 @@ def delete_address(db, user, identity):
   db.commit()
 
 
-def serialize_visit(db, item):
+def serialize_verification(item):
+  if item and item.admin_verified:
+    return {"verification_status": "verified", "verification_reason": "관리자 임시 인증"}
+  return {"verification_status": item.verification_status if item else "not_verified", "verification_reason": None}
+
+
+def serialize_visit(db, item, *, include_private=True):
   restaurant = db.get(Restaurant, item.restaurant_id)
-  return {
+  result = {
     "id": item.id, "restaurant_id": item.restaurant_id, "restaurant_name": restaurant.name,
-    "visited_on": item.visited_on.isoformat(), "note": item.note, "receipt_id": item.receipt_id,
-    "receipt_uploaded": bool(item.receipt_id), "verification_status": item.verification_status,
+    "visited_on": item.visited_on.isoformat(), "receipt_uploaded": bool(item.receipt_id),
+    "admin_verified": item.admin_verified, **serialize_verification(item),
     "created_at": timestamp(item.created_at),
   }
+  if include_private:
+    result.update(note=item.note, receipt_id=item.receipt_id)
+  return result
 
 
-def visits(db, user, page, size):
+def visits(db, user, page, size, *, include_private=True):
   query = select(Visit).where(Visit.user_id == user.id)
   total = db.scalar(select(func.count()).select_from(query.subquery()))
   rows = db.scalars(query.order_by(Visit.visited_on.desc(), Visit.id.desc()).offset((page - 1) * size).limit(size)).all()
-  return page_result([serialize_visit(db, item) for item in rows], total, page, size)
+  return page_result([serialize_visit(db, item, include_private=include_private) for item in rows], total, page, size)
 
 
 def save_visit(db, user, data, identity=None):
-  item = owned(db, Visit, identity, user.id) if identity else Visit(user_id=user.id)
+  item = owned(db, Visit, identity, user.id, lock=True) if identity else Visit(user_id=user.id)
   restaurant = db.get(Restaurant, data.restaurant_id, with_for_update={"read": True})
   if restaurant is None or (restaurant.deleted_at and item.restaurant_id != restaurant.id):
     raise HTTPException(404, "음식점을 찾을 수 없습니다.")
@@ -102,9 +132,11 @@ def save_visit(db, user, data, identity=None):
     if used and used.id != identity:
       raise HTTPException(409, "다른 방문 기록에 사용 중인 영수증입니다.")
   previous_receipt = item.receipt_id
+  if (item.restaurant_id, item.visited_on, previous_receipt) != (data.restaurant_id, data.visited_on, data.receipt_id):
+    item.verification_status = "not_verified"
+    item.admin_verified = False
   for key, value in data.model_dump().items():
     setattr(item, key, value)
-  item.verification_status = "not_verified"
   db.add(item)
   db.commit()
   if previous_receipt and previous_receipt != item.receipt_id:

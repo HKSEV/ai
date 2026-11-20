@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { LuPenLine, LuTrash2 } from "react-icons/lu";
+import { LuClipboardList, LuPenLine, LuTrash2 } from "react-icons/lu";
 import { api, errorMessage, json } from "@/app/lib/api";
 import { checkedTime } from "@/app/lib/format";
 import type { User } from "@/app/types/Service";
@@ -12,16 +12,17 @@ import { useToast } from "@/components/ui/ToastProvider";
 import { setUser } from "@/store/authSlice";
 import type { RootState } from "@/store/store";
 import ManagementList, { type ListActions } from "./ManagementList";
+import UserVisits from "./UserVisits";
 
 function UserRow({ user, actions }: { user: User; actions: ListActions }) {
-  const [dialog, setDialog] = useState<"edit" | "remove" | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "remove" | "visits" | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const currentId = useSelector((state: RootState) => state.auth.user?.id);
   const dispatch = useDispatch();
   const toast = useToast();
   const path = "/api/admin/users/" + user.id;
-  const open = (mode: "edit" | "remove") => {
+  const open = (mode: NonNullable<typeof dialog>) => {
     setError("");
     setDialog(mode);
   };
@@ -66,7 +67,15 @@ function UserRow({ user, actions }: { user: User; actions: ListActions }) {
         <p className="mt-1 text-sm text-muted">{user.email || "이메일 미제공"}</p>
         <p className="mt-1 text-xs text-muted">가입 {checkedTime(user.created_at)}</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="button button-secondary button-small"
+          type="button"
+          aria-label={user.nickname + " 방문 기록"}
+          onClick={() => open("visits")}>
+          <LuClipboardList/>
+          방문 기록
+        </button>
         <button
           className="button button-secondary button-small"
           type="button"
@@ -84,6 +93,7 @@ function UserRow({ user, actions }: { user: User; actions: ListActions }) {
           </button>
         )}
       </div>
+      {dialog === "visits" && <UserVisits user={user} onClose={() => setDialog(null)}/>}
       {dialog === "edit" && (
         <Modal title="사용자 정보 수정" busy={pending} onClose={() => setDialog(null)}>
           {(close) => (

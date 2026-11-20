@@ -42,3 +42,7 @@ class RestaurantRemoval(InputModel):
   review_count: int = Field(ge=0)
   visit_count: int = Field(ge=0)
   menu_count: int = Field(ge=0)
+
+
+class VisitVerification(InputModel):
+  verified: bool = Field(strict=True)

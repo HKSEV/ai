@@ -235,14 +235,38 @@ test("address form saves a confirmed map point through the private endpoint", as
   await act(async () => mapClick({ latLng: new LatLng(37.65, 127.06) }));
   assert.equal(screen.getByLabelText("선택한 주소").readOnly, true);
   assert.equal(screen.getByLabelText("선택한 주소").value, "서울 노원구 공릉로 1");
+  fireEvent.change(screen.getByLabelText("상세 주소 (선택)"), { target: { value: "101동 203호" } });
   fireEvent.click(screen.getByLabelText("기본 출발지로 사용"));
   fireEvent.click(screen.getByRole("button", { name: "주소 저장" }));
   await screen.findByText("주소를 저장했어요.");
   const post = calls.find((call) => call.options.method === "POST");
   assert.equal(post.url, "/api/me/addresses");
   assert.deepEqual(JSON.parse(post.options.body), {
-    label: "집", address: "서울 노원구 공릉로 1", latitude: 37.65, longitude: 127.06, is_default: true,
+    label: "집", address: "서울 노원구 공릉로 1", detail_address: "101동 203호", latitude: 37.65, longitude: 127.06, is_default: true,
   });
+});
+
+test("a cancelled receipt picker keeps the visit modal and its saved attachment", async () => {
+  const Modal = require("../src/components/ui/Modal.tsx").default;
+  const VisitForm = require("../src/components/mypage/VisitForm.tsx").default;
+  const initial = { id: 2, restaurant_id: 7, restaurant_name: "공릉식당", visited_on: "2026-11-01", note: "처음 쓴 메모", receipt_id: "old-receipt" };
+  let closed = false;
+  const view = render(React.createElement(Modal, { title: "방문 기록 수정", onClose: () => { closed = true; } },
+    React.createElement(VisitForm, { initial, onSaved() {} })));
+  const memo = screen.getByLabelText("나만의 메모");
+  fireEvent.change(memo, { target: { value: "작성 중인 메모" } });
+  const input = screen.getByLabelText(/영수증 첨부/);
+  fireEvent(input, new Event("cancel", { bubbles: true, cancelable: false }));
+  const dialog = view.container.querySelector("dialog");
+  assert.equal(dialog.hasAttribute("data-closing"), false);
+  assert.equal(dialog.open, true);
+  assert.equal(closed, false);
+  assert.equal(memo.value, "작성 중인 메모");
+  assert.equal(screen.getByRole("link", { name: "첨부된 영수증 보기" }).getAttribute("href"), "/api/uploads/old-receipt");
+  assert.equal(calls.some(({ url }) => url.includes("/api/uploads")), false);
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  assert.equal(dialog.hasAttribute("data-closing"), true);
+  await waitFor(() => assert.equal(closed, true));
 });
 
 test("chat ignores composing Enter and prevents duplicate submissions", async () => {

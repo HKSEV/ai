@@ -1,11 +1,22 @@
 import argparse
 from pathlib import Path
 
+from sqlalchemy import inspect, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from config.database import Base, engine
 from entity import models
+
+
+def upgrade_columns(connection):
+  schema = inspect(connection)
+  for table, column, definition in (
+    ("addresses", "detail_address", "VARCHAR(200) NOT NULL DEFAULT ''"),
+    ("visits", "admin_verified", "BOOLEAN NOT NULL DEFAULT 0"),
+  ):
+    if column not in {entry["name"] for entry in schema.get_columns(table)}:
+      connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 
 
 def main():
@@ -23,7 +34,9 @@ def main():
     return
   if engine is None:
     raise SystemExit("backend/.env에 MySQL 연결 정보를 설정해 주세요.")
-  Base.metadata.create_all(engine)
+  with engine.begin() as connection:
+    Base.metadata.create_all(connection)
+    upgrade_columns(connection)
   print(str(len(Base.metadata.tables)) + "개 테이블을 확인했습니다. 기존 데이터는 삭제하지 않습니다.")
 
 

@@ -5,7 +5,7 @@ import {
   LuPhone,
   LuUtensils
 } from "react-icons/lu";
-import type { Restaurant } from "@/app/types/Service";
+import type { Restaurant, RestaurantReviews } from "@/app/types/Service";
 import { checkedTime, distanceLabel, money } from "@/app/lib/format";
 import { postPath } from "@/app/lib/paths";
 
@@ -15,17 +15,18 @@ const sectionHelp = "helper text-[.67rem] mobile:text-[.72rem]";
 const linkButton = "button button-small flex-1 text-[.7rem]";
 
 export default function RestaurantCard({
-  restaurant: item, index, reviewed, selected, onSelect
+  restaurant: item, index, reviews, selected, onSelect
 }: {
   restaurant: Restaurant;
   index: number;
-  reviewed?: boolean;
+  reviews?: RestaurantReviews;
   selected?: boolean;
   onSelect?: () => void;
 }) {
   const phone = item.phone?.trim();
   const dial = phone?.replace(/[()\s.-]/g, "");
   const order = item.menu_combination;
+  const reviewSummary = reviews?.review_summary ?? [];
 
   return (
     <article className={`
@@ -59,7 +60,7 @@ export default function RestaurantCard({
         </div>
         <LuUtensils className="mt-1 text-muted"/>
       </div>
-      {reviewed && (
+      {reviews?.reviewed && (
         <span className="badge mt-[.65rem] gap-[.3rem]">
           <LuCheck aria-hidden/>리뷰를 작성했어요!
         </span>
@@ -183,10 +184,10 @@ export default function RestaurantCard({
           </details>
         )}
       </div>
-      {item.review_summary.length > 0 && (
+      {reviewSummary.length > 0 && (
         <div className={section}>
           <h4 className={sectionTitle}>이웃 리뷰에서</h4>
-          {item.review_summary.slice(0, 2).map((review) => (
+          {reviewSummary.slice(0, 2).map((review) => (
             <Link
             href={postPath(review.id)}
             className="mt-[.6rem] block border-l-2 border-[#d3dccb]

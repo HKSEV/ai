@@ -4,7 +4,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 
 from config.settings import settings
 from entity.models import Menu, Post, Restaurant, utcnow
@@ -15,6 +15,26 @@ KST = ZoneInfo("Asia/Seoul")
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 REGULAR_HOURS_BASIS = "등록된 요일별 일정 기준 · 날짜별 변경 여부는 별도로 확인하세요."
 EXCEPTION_HOURS_BASIS = "등록된 날짜별 일정 기준 · 방문 전 확인 권장"
+REVIEW_SUMMARY_LIMIT = 5
+
+
+def review_summary(row):
+  return {"id": row.id, "rating": row.rating, "excerpt": row.content[:180], "created_at": timestamp(row.created_at)}
+
+
+def restaurant_reviews(db, ids, user_id):
+  summaries = {identity: {"id": identity, "reviewed": False, "review_summary": []} for identity in ids}
+  ranked = select(
+    Post.id, Post.restaurant_id, Post.rating, Post.content, Post.created_at,
+    func.row_number().over(partition_by=Post.restaurant_id, order_by=(Post.created_at.desc(), Post.id.desc())).label("position"),
+    func.max(case((Post.user_id == user_id, 1), else_=0)).over(partition_by=Post.restaurant_id).label("reviewed"),
+  ).where(Post.kind == "review", Post.restaurant_id.in_(ids)).subquery()
+  query = select(ranked).where(ranked.c.position <= REVIEW_SUMMARY_LIMIT).order_by(ranked.c.position)
+  for row in db.execute(query):
+    summary = summaries[row.restaurant_id]
+    summary["reviewed"] = bool(row.reviewed)
+    summary["review_summary"].append(review_summary(row))
+  return list(summaries.values())
 
 
 def fresh(checked_at):
@@ -168,7 +188,7 @@ def distance_metres(lat1, lng1, lat2, lng2):
 
 def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=None):
   menus = db.scalars(select(Menu).where(Menu.restaurant_id == item.id).order_by(Menu.id)).all()
-  reviews = db.scalars(select(Post).where(Post.restaurant_id == item.id, Post.kind == "review").order_by(Post.created_at.desc(), Post.id.desc()).limit(5)).all()
+  reviews = db.scalars(select(Post).where(Post.restaurant_id == item.id, Post.kind == "review").order_by(Post.created_at.desc(), Post.id.desc()).limit(REVIEW_SUMMARY_LIMIT)).all()
   visit_at = datetime.fromisoformat(conditions["visit_at"]) if conditions and conditions.get("visit_at") else None
   map_target = quote(item.name, safe="")
   if item.latitude is not None and item.longitude is not None:
@@ -189,7 +209,7 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
     "menu_combination": menu_combination(menus, conditions.get("party_size") if conditions else None),
     "distance_metres": round(distance) if distance is not None else None, "distance_basis": "좌표로 계산한 직선거리", "travel_minutes": None,
     "map_url": map_url, "directions_url": directions,
-    "review_summary": [{"id": row.id, "rating": row.rating, "excerpt": row.content[:180], "created_at": timestamp(row.created_at)} for row in reviews],
+    "review_summary": [review_summary(row) for row in reviews],
     "wait_minutes": None, "estimated_card_spending": None, "repeat_visit_rate": None, "external_visit_verified": None,
   }
 

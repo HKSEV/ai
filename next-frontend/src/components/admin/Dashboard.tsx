@@ -36,7 +36,10 @@ const actions: Record<AdminAction["action"], string> = {
   prompt_restore: "프롬프트 복원",
   user_delete: "유저 삭제",
   restaurant_delete: "식당 삭제",
-  post_delete: "게시물 삭제"
+  post_update: "게시물 수정",
+  post_delete: "게시물 삭제",
+  visit_verify: "방문 임시 인증",
+  visit_unverify: "방문 임시 인증 해제"
 };
 
 function Trend({ data, days }: { data: AdminTrend[]; days: number }) {

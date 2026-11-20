@@ -10,11 +10,13 @@ import { useToast } from "@/components/ui/ToastProvider";
 export default function PostDeleteButton({
   post,
   onDeleted,
-  label
+  label,
+  path = "/api/posts/" + post.id
 }: {
   post: Post;
   onDeleted: () => void;
   label?: string;
+  path?: string;
 }) {
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
@@ -22,7 +24,7 @@ export default function PostDeleteButton({
   const remove = async () => {
     setPending(true);
     try {
-      await api("/api/posts/" + post.id, { method: "DELETE" });
+      await api(path, { method: "DELETE" });
       setConfirm(false);
       toast("이야기를 삭제했어요.");
       onDeleted();

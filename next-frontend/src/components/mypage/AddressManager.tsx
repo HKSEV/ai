@@ -82,7 +82,9 @@ export default function AddressManager() {
                 <h3 className="text-[.9rem]">{item.label}</h3>
                 {item.is_default && <span className="badge">기본 주소</span>}
               </div>
-              <p className="text-[.76rem] wrap-anywhere text-muted">{item.address}</p>
+              <p className="text-[.76rem] wrap-anywhere text-muted">
+                {item.address}{item.detail_address && " " + item.detail_address}
+              </p>
               <div
                 className="mt-2 flex items-center gap-[.8rem] text-[.66rem]
               text-[#8c9685] [&>button]:py-[.2rem]">

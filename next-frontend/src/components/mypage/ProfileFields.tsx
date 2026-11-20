@@ -18,16 +18,19 @@ const amountInput =
   "flex items-center gap-2 rounded-[.7rem] border border-line pr-[.8rem]";
 const amountUnit = "text-[.7rem] font-normal whitespace-nowrap text-muted";
 
-export function readProfileFields(form: HTMLFormElement) {
-  const fields = new FormData(form);
+export function readPreferenceFields(fields: FormData) {
   const min = fields.get("budget_min");
   const max = fields.get("budget_max");
   return {
-    nickname: fields.get("nickname"),
     preferences: fields.getAll("preferences"),
     budget_min: min ? Number(min) : null,
     budget_max: max ? Number(max) : null
   };
+}
+
+export function readProfileFields(form: HTMLFormElement) {
+  const fields = new FormData(form);
+  return { nickname: fields.get("nickname"), ...readPreferenceFields(fields) };
 }
 
 export default function ProfileFields({
@@ -37,7 +40,6 @@ export default function ProfileFields({
   user: User;
   admin?: boolean;
 }) {
-  const [preferences, setPreferences] = useState(user.preferences);
   return (
     <>
       <label>
@@ -65,6 +67,21 @@ export default function ProfileFields({
           한글·영문·숫자·밑줄 2~20자 · 중복된 닉네임은 사용할 수 없어요.
         </span>
       </label>
+      <PreferenceFields user={user} admin={admin}/>
+    </>
+  );
+}
+
+export function PreferenceFields({
+  user,
+  admin = false
+}: {
+  user: User;
+  admin?: boolean;
+}) {
+  const [preferences, setPreferences] = useState(user.preferences);
+  return (
+    <>
       <fieldset>
         <legend>좋아하는 음식</legend>
         <div className="flex flex-wrap gap-2">

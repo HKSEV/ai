@@ -8,7 +8,7 @@ import { LuArrowUpRight, LuPlus, LuTrash2 } from "react-icons/lu";
 import { api, deleteConversation, errorMessage } from "@/app/lib/api";
 import { checkedTime } from "@/app/lib/format";
 import { postPath } from "@/app/lib/paths";
-import useApiQuery from "@/app/lib/useApiQuery";
+import useApiQuery, { LIVE_REFRESH_INTERVAL } from "@/app/lib/useApiQuery";
 import type {
   Conversation,
   ConversationSummary,
@@ -36,7 +36,8 @@ export default function MyRecords() {
         ? "/api/me/visits"
         : "/api/posts?mine=true";
   const query = useApiQuery<PageResult<ConversationSummary | Visit | Post>>(
-    path + (path.includes("?") ? "&" : "?") + "size=10&page=" + page
+    path + (path.includes("?") ? "&" : "?") + "size=10&page=" + page,
+    tab === "visits" ? LIVE_REFRESH_INTERVAL : 0
   );
   const [editing, setEditing] = useState<Visit | "new" | null>(null);
   const [removing, setRemoving] = useState<{ id: number; type: string } | null>(null);
@@ -148,6 +149,7 @@ export default function MyRecords() {
                         ? "영수증 첨부 · 미인증"
                         : "방문 미인증"}
                   </p>
+                  {row.verification_reason && <p className={recordDetail}>{row.verification_reason}</p>}
                   <p className={recordDetail + " line-clamp-2 wrap-anywhere"}>
                     {row.note}
                   </p>

@@ -19,12 +19,22 @@ export default function IconTooltips() {
     let focused: HTMLElement | null = null;
     let active: HTMLElement | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let dismissTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const hide = () => {
+    const hide = (immediate = false) => {
       clearTimeout(timer);
-      if (tooltip.hidePopover && tooltip.matches(":popover-open"))
-        tooltip.hidePopover();
-      tooltip.hidden = true;
+      if (tooltip.hidden || (!immediate && tooltip.hasAttribute("data-dismissing"))) return;
+      clearTimeout(dismissTimer);
+      const close = () => {
+        if (tooltip.hidePopover && tooltip.matches(":popover-open")) tooltip.hidePopover();
+        tooltip.hidden = true;
+        delete tooltip.dataset.dismissing;
+      };
+      if (immediate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) close();
+      else {
+        tooltip.dataset.dismissing = "";
+        dismissTimer = setTimeout(close, 140);
+      }
     };
     const position = () => {
       if (!active?.isConnected) {
@@ -90,7 +100,7 @@ export default function IconTooltips() {
       }
     };
     const reposition = () => {
-      if (!tooltip.hidden) position();
+      if (!tooltip.hidden && !tooltip.hasAttribute("data-dismissing")) position();
     };
     document.addEventListener("pointerover", enter, true);
     document.addEventListener("pointerout", leave, true);
@@ -100,7 +110,7 @@ export default function IconTooltips() {
     window.addEventListener("resize", reposition);
     window.addEventListener("scroll", reposition, true);
     return () => {
-      hide();
+      hide(true);
       document.removeEventListener("pointerover", enter, true);
       document.removeEventListener("pointerout", leave, true);
       document.removeEventListener("focusin", focus);
@@ -116,7 +126,8 @@ export default function IconTooltips() {
       className="pointer-events-none fixed inset-auto z-110 m-0 w-max
       max-w-[calc(100vw-1rem)] rounded-[.4rem] border-0 bg-forest-dark px-[.55rem]
       pt-[.35rem] pb-[.28rem] text-[.7rem] leading-[1.45] text-white
-      shadow-[0_3px_12px_#193e2e33]"
+      shadow-[0_3px_12px_#193e2e33] motion-safe:animate-toast
+      motion-safe:data-dismissing:animate-dismiss"
       role="tooltip"
       popover="manual"
       hidden

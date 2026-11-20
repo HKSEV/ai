@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from google.genai.errors import ServerError
 from PIL import Image
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -27,6 +27,7 @@ from config.settings import settings
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import Address, AdminAssignment, AuthSession, Conversation, Menu, Message, OAuthState, Post, Restaurant, SearchRecord, Upload, User, Visit, utcnow
 from main import app
+from scripts.init_db import upgrade_columns
 from scripts.migrate_admin import migrate
 from service import auth_service, chat_service, restaurant_service
 from service.restaurant_service import menu_combination, opening_status
@@ -138,11 +139,16 @@ class ServiceTests(unittest.TestCase):
       self.assertEqual(other_origin.status_code, 403)
 
   def test_address_crud_default_and_ownership(self):
-    payload = {"label": "집", "address": "서울 노원구 공릉로 1"}
+    payload = {"label": "집", "address": "서울 노원구 공릉로 1", "detail_address": " 101동 203호 "}
     first = self.client.post("/api/me/addresses", json=payload)
     self.assertEqual(first.status_code, 201, first.text)
     identity = first.json()["id"]
     self.assertTrue(first.json()["is_default"])
+    self.assertEqual(first.json()["detail_address"], "101동 203호")
+    changed = self.client.put(f"/api/me/addresses/{identity}", json={**payload, "detail_address": "2층"})
+    self.assertEqual(changed.json()["detail_address"], "2층")
+    without_detail = {key: value for key, value in payload.items() if key != "detail_address"}
+    self.assertEqual(self.client.put(f"/api/me/addresses/{identity}", json=without_detail).json()["detail_address"], "2층")
     other = self.client.post("/api/me/addresses", json={**payload, "label": "직장", "is_default": True}).json()
     self.assertEqual(sum(item["is_default"] for item in self.client.get("/api/me/addresses").json()), 1)
     self.login(self.other_token)
@@ -152,6 +158,21 @@ class ServiceTests(unittest.TestCase):
     self.login(self.token)
     self.assertEqual(self.client.delete("/api/me/addresses/" + str(other["id"])).status_code, 204)
     self.assertTrue(self.client.get("/api/me/addresses").json()[0]["is_default"])
+
+  def test_v14_upgrades_existing_columns_without_losing_address_or_visit_status(self):
+    with self.factory() as db:
+      db.add(Address(user_id=self.user_id, label="집", address="서울 노원구 공릉로 1", is_default=True))
+      db.add(Visit(user_id=self.user_id, restaurant_id=self.restaurant_id, visited_on=date(2026, 11, 1), verification_status="verified"))
+      db.commit()
+    with self.engine.begin() as connection:
+      connection.execute(text("ALTER TABLE addresses DROP COLUMN detail_address"))
+      connection.execute(text("ALTER TABLE visits DROP COLUMN admin_verified"))
+      upgrade_columns(connection)
+      upgrade_columns(connection)
+    address = self.client.get("/api/me/addresses").json()[0]
+    self.assertEqual((address["address"], address["detail_address"], address["is_default"]), ("서울 노원구 공릉로 1", "", True))
+    visit = self.client.get("/api/me/visits").json()["items"][0]
+    self.assertEqual((visit["verification_status"], visit["verification_reason"], visit["admin_verified"]), ("verified", None, False))
 
   def test_community_crud_filters_pagination_and_ownership(self):
     response = self.client.post("/api/posts", json=self.post())
@@ -441,6 +462,31 @@ class ServiceTests(unittest.TestCase):
     self.login(self.other_token)
     self.assertEqual(self.client.get(lookup).json(), [self.restaurant_id])
 
+  def test_recommendation_review_lookup_uses_live_reviews_and_checks_all_for_ownership(self):
+    lookup = f"/api/restaurants/reviews?ids={self.restaurant_id}&ids=999"
+    payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01")
+    own = self.client.post("/api/posts", json=payload).json()["id"]
+    self.login(self.other_token)
+    for _ in range(5):
+      neighbor = self.client.post("/api/posts", json=payload).json()["id"]
+    update = self.client.put(f"/api/posts/{neighbor}", json={**payload, "rating": 3, "content": "같은 식당의 이웃 리뷰를 수정했습니다."})
+    self.assertEqual(update.status_code, 200, update.text)
+    self.login(self.token)
+    current, empty = self.client.get(lookup).json()
+    self.assertEqual(empty, {"id": 999, "reviewed": False, "review_summary": []})
+    self.assertTrue(current["reviewed"])
+    self.assertEqual(len(current["review_summary"]), 5)
+    self.assertNotIn(own, [item["id"] for item in current["review_summary"]])
+    self.assertEqual(current["review_summary"][0]["rating"], 3)
+    self.assertEqual(current["review_summary"][0]["excerpt"], "같은 식당의 이웃 리뷰를 수정했습니다.")
+    self.assertEqual(self.client.delete(f"/api/posts/{own}").status_code, 204)
+    self.login(self.other_token)
+    self.assertEqual(self.client.delete(f"/api/posts/{neighbor}").status_code, 204)
+    self.login(self.token)
+    current = self.client.get(lookup).json()[0]
+    self.assertFalse(current["reviewed"])
+    self.assertNotIn(neighbor, [item["id"] for item in current["review_summary"]])
+
   @patch("service.chat_service.sleep")
   def test_gemini_retries_temporary_unavailability_once(self, pause):
     unavailable = ServerError(503, {"error": {"status": "UNAVAILABLE", "message": "검증용 일시 과부하"}})
@@ -568,9 +614,21 @@ class ServiceTests(unittest.TestCase):
       self.assertTrue(user["address_setup_pending"])
       self.assertEqual(user["email"], "walk@example.com")
       self.assertEqual(self.client.put("/api/me", json=self.profile(email="changed@example.com")).status_code, 422)
-      address = self.client.post("/api/me/addresses", json={"label": "집", "address": "서울 노원구 공릉로 1", "latitude": 37.65, "longitude": 127.06})
-      self.assertEqual(address.status_code, 201, address.text)
-      self.assertTrue(address.json()["is_default"])
+      address = {"label": "집", "address": "서울 노원구 공릉로 1", "detail_address": "101동 203호", "latitude": 37.65, "longitude": 127.06}
+      preferences = {"preferences": ["일식", "한식"], "budget_min": 10000, "budget_max": 25000}
+      onboarding = {"address": address, **preferences}
+      self.assertEqual(self.client.put("/api/me/onboarding", json={**onboarding, "budget_max": 5000}).status_code, 422)
+      self.assertEqual(self.client.get("/api/me/addresses").json(), [])
+      self.assertTrue(self.client.get("/api/auth/me").json()["address_setup_pending"])
+      saved = self.client.put("/api/me/onboarding", json=onboarding)
+      self.assertEqual(saved.status_code, 200, saved.text)
+      self.assertTrue(saved.json()["completed"])
+      self.assertEqual(saved.json()["user"]["preferences"], preferences["preferences"])
+      self.assertFalse(self.client.put("/api/me/onboarding", json={**onboarding, "preferences": []}).json()["completed"])
+      saved_addresses = self.client.get("/api/me/addresses").json()
+      self.assertEqual(len(saved_addresses), 1)
+      self.assertTrue(saved_addresses[0]["is_default"])
+      self.assertEqual(saved_addresses[0]["detail_address"], address["detail_address"])
       self.assertFalse(self.client.get("/api/auth/me").json()["address_setup_pending"])
       self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
       self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
@@ -581,6 +639,14 @@ class ServiceTests(unittest.TestCase):
       returning_user = self.client.get("/api/auth/me").json()
       self.assertEqual(returning_user["nickname"], nickname)
       self.assertEqual(returning_user["role"], "ADMIN")
+      self.assertEqual({key: returning_user[key] for key in preferences}, preferences)
+      with patch("service.chat_service.get_client"), self.ai(conditions={"area": "공릉동", "cuisine": "찌개", "party_size": 2}) as generate:
+        chat = self.client.post("/api/chat", json={"message": "공릉동에서 둘이 먹을 식당을 알려줘"})
+      self.assertEqual(chat.status_code, 200, chat.text)
+      self.assertEqual(chat.json()["conditions"]["budget_total"], 50000)
+      ai_input = generate.call_args_list[0].args[2]
+      self.assertEqual(ai_input["origin"], address["address"])
+      self.assertEqual(ai_input["profile"]["preferences"], preferences["preferences"])
       replay = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertIn("login_error", replay.headers["location"])
     with self.factory() as db:
@@ -759,6 +825,79 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(list(Path(self.media_directory.name).iterdir()), [])
     self.login(self.other_token)
     self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+
+  def test_admin_post_management_updates_community_and_preserves_linked_records(self):
+    self.login_admin()
+    self.login(self.other_token)
+    photo = self.image()
+    review = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01", photo_ids=[photo])
+    review_id = self.client.post("/api/posts", json=review).json()["id"]
+    experience_id = self.client.post("/api/posts", json=self.post()).json()["id"]
+    changed = {"title": "관리자 수정 제목", "content": "관리자가 수정한 내용입니다.", "rating": 3}
+    path = f"/api/admin/posts/{review_id}"
+    self.assertEqual(self.client.get("/api/admin/posts").status_code, 403)
+    self.assertEqual(self.client.put(path, json=changed).status_code, 403)
+    self.assertEqual(self.client.delete(path).status_code, 403)
+    self.login(self.token)
+    listing = self.client.get("/api/admin/posts?query=상계산책가&size=1").json()
+    self.assertEqual((listing["total"], listing["pages"]), (2, 2))
+    self.assertEqual(self.client.put(path, json={**changed, "restaurant_id": 99}).status_code, 422)
+    self.assertEqual(self.client.put(path, json=changed).status_code, 200)
+    experience_path = f"/api/admin/posts/{experience_id}"
+    self.assertEqual(self.client.put(experience_path, json=changed).status_code, 422)
+    self.assertEqual(self.client.put(experience_path, json={"title": "수정한 서비스 후기", "content": changed["content"]}).status_code, 200)
+    self.login(self.other_token)
+    detail = self.client.get(f"/api/posts/{review_id}").json()
+    self.assertEqual({key: detail[key] for key in changed}, changed)
+    self.assertEqual((detail["author"], detail["restaurant_id"], detail["photo_ids"]), ("상계산책가", self.restaurant_id, [photo]))
+    self.assertEqual(self.client.get("/api/posts?kind=experience").json()["items"][0]["title"], "수정한 서비스 후기")
+    self.login(self.token)
+    self.assertEqual(self.client.delete(path).status_code, 204)
+    self.assertEqual(self.client.delete(experience_path).status_code, 204)
+    actions = {item["action"] for item in self.client.get("/api/admin/dashboard").json()["actions"]}
+    self.assertTrue({"post_update", "post_delete"}.issubset(actions))
+    self.login(self.other_token)
+    self.assertEqual(self.client.get(f"/api/posts/{review_id}").status_code, 404)
+    self.assertEqual(self.client.get("/api/posts").json()["total"], 0)
+    self.assertEqual(self.client.get("/api/uploads/" + photo).status_code, 404)
+
+  def test_admin_visit_verification_restores_base_state_and_protects_private_receipts(self):
+    self.login_admin()
+    self.login(self.other_token)
+    receipt = self.image("receipt")
+    data = {"restaurant_id": self.restaurant_id, "visited_on": "2026-11-01", "note": "개인 메모", "receipt_id": receipt}
+    visit = self.client.post("/api/me/visits", json=data).json()["id"]
+    review = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01", visit_id=visit)
+    post_path = "/api/posts/" + str(self.client.post("/api/posts", json=review).json()["id"])
+    path = f"/api/admin/users/{self.other_id}/visits"
+    verify = f"{path}/{visit}/verification"
+    self.assertEqual(self.client.get(path).status_code, 403)
+    self.assertEqual(self.client.put(verify, json={"verified": True}).status_code, 403)
+    with self.factory() as db:
+      db.get(Visit, visit).verification_status = "pending"
+      db.commit()
+    self.login(self.token)
+    listing = self.client.get(path).json()["items"][0]
+    self.assertEqual(listing["id"], visit)
+    self.assertTrue(listing["receipt_uploaded"])
+    self.assertNotIn("receipt_id", listing)
+    self.assertNotIn("note", listing)
+    self.assertEqual(self.client.get("/api/uploads/" + receipt).status_code, 404)
+    wrong_user = f"/api/admin/users/{self.user_id}/visits/{visit}/verification"
+    self.assertEqual(self.client.put(wrong_user, json={"verified": True}).status_code, 404)
+    verified = self.client.put(verify, json={"verified": True}).json()
+    self.assertEqual((verified["verification_status"], verified["verification_reason"]), ("verified", "관리자 임시 인증"))
+    self.assertEqual(self.client.put(verify, json={"verified": True}).status_code, 200)
+    self.login(self.other_token)
+    self.assertEqual(self.client.get(post_path).json()["verification_reason"], "관리자 임시 인증")
+    self.assertEqual(self.client.put(f"/api/me/visits/{visit}", json={**data, "note": "변경한 메모"}).json()["verification_status"], "verified")
+    self.login(self.token)
+    restored = self.client.put(verify, json={"verified": False}).json()
+    self.assertEqual((restored["verification_status"], restored["verification_reason"]), ("pending", None))
+    self.assertEqual(self.client.get(post_path).json()["verification_status"], "pending")
+    actions = [item["action"] for item in self.client.get("/api/admin/dashboard").json()["actions"]]
+    self.assertEqual(actions.count("visit_verify"), 1)
+    self.assertEqual(actions.count("visit_unverify"), 1)
 
   def test_kakao_real_http_contract_and_trusted_identity(self):
     requests = []

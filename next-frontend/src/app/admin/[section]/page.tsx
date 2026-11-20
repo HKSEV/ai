@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import PostManager from "@/components/admin/PostManager";
 import PromptManager from "@/components/admin/PromptManager";
 import RestaurantManager from "@/components/admin/RestaurantManager";
 import UserManager from "@/components/admin/UserManager";
@@ -6,7 +7,8 @@ import UserManager from "@/components/admin/UserManager";
 const pages = {
   ai: PromptManager,
   users: UserManager,
-  restaurants: RestaurantManager
+  restaurants: RestaurantManager,
+  posts: PostManager
 };
 
 export const dynamicParams = false;

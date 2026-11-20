@@ -23,6 +23,7 @@ export interface Address {
   id: number;
   label: string;
   address: string;
+  detail_address: string;
   latitude: number | null;
   longitude: number | null;
   is_default: boolean;
@@ -66,6 +67,12 @@ export interface OpeningPeriod {
   break_end?: string;
   last_order?: string;
   conflicts?: string[];
+}
+
+export interface RestaurantReviews {
+  id: number;
+  reviewed: boolean;
+  review_summary: { id: number; rating: number; excerpt: string; created_at: string }[];
 }
 
 export interface Restaurant extends RestaurantOption {
@@ -120,7 +127,7 @@ export interface Restaurant extends RestaurantOption {
   travel_mode?: string | null;
   map_url: string;
   directions_url: string;
-  review_summary: { id: number; rating: number; excerpt: string; created_at: string }[];
+  review_summary: RestaurantReviews["review_summary"];
   reason?: string;
   confirmed_matches?: string[];
   budget_note?: string | null;
@@ -158,6 +165,7 @@ export interface Post {
   visit_id: number | null;
   receipt_uploaded: boolean;
   verification_status: string;
+  verification_reason: string | null;
   photo_ids: string[];
   photo_urls: string[];
   created_at: string;
@@ -173,6 +181,8 @@ export interface Visit {
   receipt_id: string | null;
   receipt_uploaded: boolean;
   verification_status: string;
+  verification_reason: string | null;
+  admin_verified: boolean;
   created_at: string;
 }
 

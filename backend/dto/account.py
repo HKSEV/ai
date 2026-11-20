@@ -9,8 +9,7 @@ class InputModel(BaseModel):
   model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class ProfileInput(InputModel):
-  nickname: str = Field(min_length=2, max_length=20, pattern=r"^[가-힣a-zA-Z0-9_]+$")
+class PreferencesInput(InputModel):
   preferences: list[Literal["한식", "일식", "중식", "양식", "분식", "고기", "해산물", "카페", "채식"]] = Field(default_factory=list, max_length=9)
   budget_min: int | None = Field(default=None, ge=0, le=1000000)
   budget_max: int | None = Field(default=None, ge=1000, le=1000000)
@@ -23,9 +22,14 @@ class ProfileInput(InputModel):
     return self
 
 
+class ProfileInput(PreferencesInput):
+  nickname: str = Field(min_length=2, max_length=20, pattern=r"^[가-힣a-zA-Z0-9_]+$")
+
+
 class AddressInput(InputModel):
   label: str = Field(min_length=1, max_length=20)
   address: str = Field(min_length=5, max_length=300)
+  detail_address: str | None = Field(default=None, max_length=200)
   latitude: float | None = Field(default=None, ge=33, le=39)
   longitude: float | None = Field(default=None, ge=124, le=132)
   is_default: bool = False
@@ -34,6 +38,16 @@ class AddressInput(InputModel):
   def validate_coordinates(self):
     if (self.latitude is None) != (self.longitude is None):
       raise ValueError("위도와 경도를 함께 입력해 주세요.")
+    return self
+
+
+class OnboardingInput(PreferencesInput):
+  address: AddressInput
+
+  @model_validator(mode="after")
+  def validate_address(self):
+    if self.address.latitude is None:
+      raise ValueError("지도에서 기본 주소를 선택해 주세요.")
     return self
 
 

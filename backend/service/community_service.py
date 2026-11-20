@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from entity.models import ADMIN, Post, Restaurant, Upload, User, Visit, utcnow
 from service.admin_audit import record_admin_action
 from service.common import owned, page_result, timestamp
+from service.profile_service import serialize_verification
 from service.upload_service import delete_unlinked_uploads
 
 
@@ -11,14 +12,16 @@ def serialize_post(db, item, user):
   author = db.get(User, item.user_id)
   restaurant = db.get(Restaurant, item.restaurant_id) if item.restaurant_id else None
   visit = db.get(Visit, item.visit_id) if item.visit_id else None
+  if visit and (visit.restaurant_id, visit.visited_on) != (item.restaurant_id, item.visited_on):
+    visit = None
   return {
     "id": item.id, "kind": item.kind, "title": item.title, "content": item.content,
     "author": author.nickname, "is_owner": item.user_id == user.id,
     "restaurant_id": item.restaurant_id, "restaurant_name": restaurant.name if restaurant else None,
     "rating": item.rating, "visited_on": item.visited_on.isoformat() if item.visited_on else None,
-    "visit_id": item.visit_id if item.user_id == user.id else None,
+    "visit_id": visit.id if visit and item.user_id == user.id else None,
     "receipt_uploaded": bool(visit and visit.receipt_id),
-    "verification_status": visit.verification_status if visit else "not_verified",
+    **serialize_verification(visit),
     "photo_ids": item.photo_ids, "photo_urls": ["/api/uploads/" + value for value in item.photo_ids],
     "created_at": timestamp(item.created_at), "updated_at": timestamp(item.updated_at),
   }
@@ -37,7 +40,7 @@ def list_posts(db, user, kind, mine, sort, page, size):
 
 
 def save_post(db, user, data, identity=None):
-  item = owned(db, Post, identity, user.id) if identity else Post(user_id=user.id)
+  item = owned(db, Post, identity, user.id, lock=True) if identity else Post(user_id=user.id)
   if data.restaurant_id:
     restaurant = db.get(Restaurant, data.restaurant_id, with_for_update={"read": True})
     if restaurant is None or (restaurant.deleted_at and item.restaurant_id != restaurant.id):
@@ -63,6 +66,22 @@ def save_post(db, user, data, identity=None):
   db.commit()
   delete_unlinked_uploads(db, set(previous_photos) - set(item.photo_ids), user.id)
   return serialize_post(db, item, user)
+
+
+def update_post_as_admin(db, admin, identity, data):
+  item = db.get(Post, identity, with_for_update=True)
+  if item is None:
+    raise HTTPException(404, "게시글을 찾을 수 없습니다.")
+  if "rating" in data.model_fields_set:
+    if (item.kind == "review") != (data.rating is not None):
+      raise HTTPException(422, "음식점 리뷰에는 별점이 필요하며 서비스 사용 후기에는 별점을 입력할 수 없습니다.")
+    item.rating = data.rating
+  item.title = data.title
+  item.content = data.content
+  item.updated_at = utcnow()
+  record_admin_action(db, admin, "post_update", item.id, item.title)
+  db.commit()
+  return serialize_post(db, item, admin)
 
 
 def delete_post(db, user, identity):

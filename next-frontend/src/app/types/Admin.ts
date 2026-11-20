@@ -1,4 +1,4 @@
-import type { RestaurantOption } from "./Service";
+import type { RestaurantOption, Visit } from "./Service";
 
 export interface AdminAction {
   id: number;
@@ -8,7 +8,10 @@ export interface AdminAction {
     | "prompt_restore"
     | "user_delete"
     | "restaurant_delete"
-    | "post_delete";
+    | "post_update"
+    | "post_delete"
+    | "visit_verify"
+    | "visit_unverify";
   target_label: string;
   created_at: string;
 }
@@ -69,3 +72,5 @@ export interface RestaurantRemoval {
   visit_count: number;
   menu_count: number;
 }
+
+export type AdminVisit = Omit<Visit, "note" | "receipt_id">;

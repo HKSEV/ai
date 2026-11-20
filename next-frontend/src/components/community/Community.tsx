@@ -8,7 +8,7 @@ import { LuArrowUpRight, LuLeaf, LuPenLine } from "react-icons/lu";
 import type { PageResult, Post } from "@/app/types/Service";
 import { checkedTime } from "@/app/lib/format";
 import { postPath, withBasePath } from "@/app/lib/paths";
-import useApiQuery from "@/app/lib/useApiQuery";
+import useApiQuery, { LIVE_REFRESH_INTERVAL } from "@/app/lib/useApiQuery";
 import { Empty, ErrorState, Loading, Pagination } from "@/components/ui/States";
 import type { RootState } from "@/store/store";
 import PostDeleteButton from "./PostDeleteButton";
@@ -19,7 +19,8 @@ export default function Community() {
   const [page, setPage] = useState(1);
   const admin = useSelector((state: RootState) => state.auth.user?.role === "ADMIN");
   const query = useApiQuery<PageResult<Post>>(
-    `/api/posts?kind=${kind}&sort=${sort}&page=${page}`.replace("kind=&", "")
+    `/api/posts?kind=${kind}&sort=${sort}&page=${page}`.replace("kind=&", ""),
+    LIVE_REFRESH_INTERVAL
   );
   const reloadAfterDelete = () => {
     if (page > 1 && query.data?.items.length === 1) setPage(page - 1);
@@ -189,7 +190,7 @@ export default function Community() {
                   <time>{checkedTime(post.created_at)}</time>
                 </div>
                 {post.verification_status === "verified" && (
-                  <span className="badge">방문 인증 완료</span>
+                  <span className="badge">{post.verification_reason || "방문 인증 완료"}</span>
                 )}
               </div>
             </Link>

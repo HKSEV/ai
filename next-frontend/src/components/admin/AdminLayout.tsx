@@ -7,6 +7,7 @@ import {
   LuArrowLeft,
   LuChartNoAxesCombined,
   LuChevronDown,
+  LuFileText,
   LuLeaf,
   LuMenu,
   LuMoon,
@@ -20,7 +21,8 @@ const menus = [
   { href: "/admin", label: "통계", icon: LuChartNoAxesCombined },
   { href: "/admin/ai", label: "AI 관리", icon: LuSparkles },
   { href: "/admin/users", label: "유저 관리", icon: LuUsers },
-  { href: "/admin/restaurants", label: "식당 관리", icon: LuUtensils }
+  { href: "/admin/restaurants", label: "식당 관리", icon: LuUtensils },
+  { href: "/admin/posts", label: "게시물 관리", icon: LuFileText }
 ];
 const themeKey = "nowon-admin-theme";
 const themeEvent = "nowon:admin-theme";

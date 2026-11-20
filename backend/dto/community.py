@@ -6,12 +6,15 @@ from pydantic import Field, field_validator, model_validator
 from dto.account import InputModel, VisitInput
 
 
-class PostInput(InputModel):
-  kind: Literal["experience", "review"]
+class PostTextInput(InputModel):
   title: str = Field(min_length=2, max_length=100)
   content: str = Field(min_length=10, max_length=10000)
-  restaurant_id: int | None = Field(default=None, gt=0)
   rating: int | None = Field(default=None, ge=1, le=5)
+
+
+class PostInput(PostTextInput):
+  kind: Literal["experience", "review"]
+  restaurant_id: int | None = Field(default=None, gt=0)
   visited_on: date | None = None
   visit_id: int | None = Field(default=None, gt=0)
   photo_ids: list[str] = Field(default_factory=list, max_length=4)

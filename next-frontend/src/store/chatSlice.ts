@@ -19,13 +19,17 @@ interface ChatState {
   input: string;
   pending: string | null;
   outgoing: OutgoingMessage[];
+  optimisticKeys: Record<number, string>;
+  latestReplyId: number | null;
 }
 
 const initialState: ChatState = {
   active: null,
   input: "",
   pending: null,
-  outgoing: []
+  outgoing: [],
+  optimisticKeys: {},
+  latestReplyId: null
 };
 const chatSlice = createSlice({
   name: "chat",
@@ -36,6 +40,8 @@ const chatSlice = createSlice({
       state.active = action.payload;
       state.pending = null;
       state.outgoing = [];
+      state.optimisticKeys = {};
+      state.latestReplyId = null;
     },
     setInput: (state, action: PayloadAction<string>) => {
       state.input = action.payload;
@@ -63,6 +69,12 @@ const chatSlice = createSlice({
             ? state.active.messages.map((item) => [item.id, item])
             : []
         );
+        const sent = conversation.messages.at(-2);
+        const reply = conversation.messages.at(-1);
+        if (sent?.role === "user" && sent.content === message.content && !previousMessages.has(sent.id)) {
+          state.optimisticKeys[sent.id] = message.id;
+        }
+        state.latestReplyId = reply?.role === "assistant" ? reply.id : null;
         state.active = {
           ...conversation,
           messages: conversation.messages.map((item) => previousMessages.get(item.id) || item)
