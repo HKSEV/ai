@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/fix-static-export.mjs",
     "lint": "eslint",
     "test": "node --test tests/*.test.cjs"
   },
