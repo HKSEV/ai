@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from config.gemini import CONDITION_PROMPT, RANKING_PROMPT
+from config.gemini import CONDITION_FEATURE_RULES, CONDITION_PROMPT, RANKING_FACT_RULES, RANKING_PROMPT
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import PromptRevision, utcnow
 from service.admin_audit import record_admin_action
@@ -27,8 +27,13 @@ def revisions(db, name):
 
 
 def active_prompts(db):
-  return {name: current.content if (current := db.scalar(revisions(db, name).limit(1))) else definition[1]
-          for name, definition in PROMPTS.items()}
+  prompts = {name: current.content if (current := db.scalar(revisions(db, name).limit(1))) else definition[1]
+             for name, definition in PROMPTS.items()}
+  if CONDITION_FEATURE_RULES not in prompts["conditions"]:
+    prompts["conditions"] += "\n\n" + CONDITION_FEATURE_RULES
+  if RANKING_FACT_RULES not in prompts["ranking"]:
+    prompts["ranking"] += "\n\n" + RANKING_FACT_RULES
+  return prompts
 
 
 def serialize_revision(revision):

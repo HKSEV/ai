@@ -9,6 +9,7 @@ from sqlalchemy import case, func, select, update
 from config.settings import settings
 from entity.models import Menu, Post, Restaurant, Visit, utcnow
 from service.common import timestamp
+from service.good_price import normalized, price_menus
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -16,6 +17,14 @@ DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 REGULAR_HOURS_BASIS = "등록된 요일별 일정 기준 · 날짜별 변경 여부는 별도로 확인하세요."
 EXCEPTION_HOURS_BASIS = "등록된 날짜별 일정 기준 · 방문 전 확인 권장"
 REVIEW_SUMMARY_LIMIT = 5
+KAKAO_SOURCE = "카카오 로컬 검색"
+FEATURE_TAGS = {
+  "주차": ("주차", "주차 가능", "주차장", "전용 주차장"),
+  "단체석": ("단체석", "단체 가능", "단체 이용 가능"),
+  "룸": ("룸", "개별 룸", "별실"),
+  "유아의자": ("유아의자", "아기의자"),
+  "예약": ("예약", "예약 가능"),
+}
 
 
 def review_summary(row):
@@ -144,20 +153,57 @@ def minimum_order(available, party_size):
   return {"items": list(grouped.values()), "total": total, "per_person": math.ceil(total / party_size), "party_size": party_size, "basis": "확인된 메뉴 가격으로 계산한 예상액 · 추가 주문/가격 변동 제외"}
 
 
-def order_estimate(menus, party_size, cuisine):
-  priced = [menu for menu in menus if menu["available"] and menu["is_current"] and menu["price"]]
-  matching = [menu for menu in priced if cuisine and cuisine in menu["name"]]
-  priced = matching or priced
+def confirmed_menus(menus):
+  confirmed = {}
+  for menu in menus:
+    if not menu["available"] or not menu["is_current"]:
+      continue
+    key = normalized(menu["name"])
+    first = confirmed.setdefault(key, menu.copy())
+    if first["price"] is not None and first["price"] <= 0:
+      first["price"] = None
+    for field in ("price", "servings"):
+      if first[field] != menu[field]:
+        first[field] = None
+  return list(confirmed.values())
+
+
+def order_estimate(menus, party_size):
+  if not menus:
+    return None
+  priced = [menu for menu in menus if menu["price"]]
   order = minimum_order([menu for menu in priced if menu["servings"]], party_size)
-  if order or not priced:
-    return order
-  menu = min(priced, key=lambda item: item["price"])
-  quantity = party_size or 1
-  return {
-    "items": [{"menu_id": menu["id"], "name": menu["name"], "price": menu["price"], "quantity": quantity, "servings": menu["servings"]}],
-    "total": menu["price"] * quantity, "per_person": menu["price"] if party_size else None, "party_size": party_size,
-    "basis": "1인당 같은 메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외" if party_size else "메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외",
-  }
+  if order:
+    return summarize_order(order["items"], party_size)
+  menu = min(priced, key=lambda item: item["price"]) if priced else menus[0]
+  quantity = math.ceil(party_size / (menu["servings"] or 1)) if party_size else 1
+  return summarize_order([order_item(menu, quantity)], party_size)
+
+
+def order_item(menu, quantity):
+  return {"menu_id": menu["id"], "name": menu["name"], "price": menu["price"], "quantity": quantity, "servings": menu["servings"]}
+
+
+def summarize_order(items, party_size):
+  total = sum(menu["price"] * menu["quantity"] for menu in items) if all(menu["price"] for menu in items) else None
+  basis = "확인된 메뉴 단가 × 주문 수량 · 추가 주문/가격 변동 제외"
+  if total is None:
+    basis = "선택한 메뉴의 단가를 확인할 수 없습니다."
+  elif party_size and any(menu["servings"] is None for menu in items):
+    basis += " · 제공 인원 확인 필요"
+  return {"items": items, "total": total, "per_person": math.ceil(total / party_size) if total is not None and party_size else None,
+          "party_size": party_size, "basis": basis}
+
+
+def verified_tags(item):
+  if not item.source or item.source == KAKAO_SOURCE or not fresh(item.checked_at):
+    return []
+  return [tag for tag in item.tags or [] if isinstance(tag, str) and tag.strip()]
+
+
+def tag_match(tags, requested):
+  values = {normalized(tag) for tag in FEATURE_TAGS.get(requested, (requested,))}
+  return next((tag for tag in tags if normalized(tag) in values), None)
 
 
 def visit_schedule(hours, closed_dates, visit_at):
@@ -194,6 +240,12 @@ def distance_metres(lat1, lng1, lat2, lng2):
 
 def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=None):
   menus = db.scalars(select(Menu).where(Menu.restaurant_id == item.id).order_by(Menu.id)).all()
+  registered = [{"id": menu.id, "name": menu.name, "price": menu.price, "servings": menu.servings or None,
+                 "available": menu.available, "source": menu.source, "source_url": menu.source_url,
+                 "checked_at": timestamp(menu.checked_at), "is_current": bool(menu.source and fresh(menu.checked_at))}
+                for menu in menus]
+  registered_names = {normalized(menu["name"]) for menu in registered if menu["is_current"]}
+  published = [] if item.is_demo else price_menus(settings.good_price_menu_file, item.name, item.address)
   reviews = db.scalars(select(Post).where(Post.restaurant_id == item.id, Post.kind == "review").order_by(Post.created_at.desc(), Post.id.desc()).limit(REVIEW_SUMMARY_LIMIT)).all()
   visit_at = datetime.fromisoformat(conditions["visit_at"]) if conditions and conditions.get("visit_at") else None
   map_target = quote(item.name, safe="")
@@ -211,7 +263,7 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
     "is_demo": item.is_demo, "hours": item.hours if hours_current else None, "closed_dates": (item.closed_dates or []) if hours_current else [],
     "hours_source": item.hours_source, "hours_source_url": item.hours_source_url, "hours_checked_at": timestamp(item.hours_checked_at),
     "opening": opening_status(item, visit_at),
-    "menus": [{"id": menu.id, "name": menu.name, "price": menu.price, "servings": menu.servings, "available": menu.available, "source": menu.source, "source_url": menu.source_url, "checked_at": timestamp(menu.checked_at), "is_current": fresh(menu.checked_at)} for menu in menus],
+    "menus": registered + [menu for menu in published if normalized(menu["name"]) not in registered_names],
     "menu_combination": menu_combination(menus, conditions.get("party_size") if conditions else None),
     "distance_metres": round(distance) if distance is not None else None, "distance_basis": "좌표로 계산한 직선거리", "travel_minutes": None,
     "map_url": map_url, "directions_url": directions,
@@ -255,16 +307,17 @@ def sync_kakao(db, query, latitude, longitude, radius_metres=None):
       "area": (data.get("address_name") or address).replace("서울 ", "").replace("노원구 ", "")[:100],
       "category": (data.get("category_name") or "음식점")[:100],
       "phone": (data.get("phone") or "").strip()[:40] or None,
-      "latitude": lat, "longitude": lng, "source": "카카오 로컬 검색",
+      "latitude": lat, "longitude": lng, "source": KAKAO_SOURCE,
       "source_url": "https://place.map.kakao.com/" + str(data["id"]), "checked_at": utcnow(), "is_demo": False,
     }
     if item is None:
       item = Restaurant(external_id=external_id, **values)
       db.add(item)
-    elif not item.admin_edited_at:
+    elif not item.admin_edited_at and item.source == KAKAO_SOURCE:
       # Evaluate these conditions at write time as an administrator may have just edited or removed this place.
       db.execute(update(Restaurant).where(
         Restaurant.id == item.id, Restaurant.deleted_at.is_(None), Restaurant.admin_edited_at.is_(None),
+        Restaurant.source == KAKAO_SOURCE,
       ).values(**values))
     synced.append(item)
   db.flush()
@@ -309,7 +362,7 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
     if requested_area and requested_area not in {"노원", "노원구", "서울 노원구"} and requested_area not in haystack and row.id not in matched_ids:
       continue
     candidate = serialize_restaurant(db, row, conditions, latitude, longitude)
-    menu_text = " ".join(menu["name"] for menu in candidate["menus"])
+    menu_text = " ".join(menu["name"] for menu in candidate["menus"] if menu["available"] and menu["is_current"])
     if cuisine and row.id not in matched_ids and cuisine not in haystack + " " + menu_text:
       continue
     combo = candidate["menu_combination"]
@@ -324,10 +377,12 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
       evidence.append("distance")
     if any(pref in haystack for pref in user.preferences):
       evidence.append("preferences")
+    tags = verified_tags(row)
     for key in ["atmosphere", "purpose"]:
-      if conditions.get(key) and conditions[key] in (row.tags or []):
-        confirmed.append(conditions[key])
+      if conditions.get(key) and (matched := tag_match(tags, conditions[key])):
+        confirmed.append(matched)
         evidence.append(key)
+    candidate["verified_tags"] = tags
     candidate["available_evidence"] = evidence
     candidate["confirmed_matches"] = confirmed
     candidate["budget_note"] = None if combo else "메뉴·가격 또는 인원 정보가 부족해 예산 충족 여부를 확인할 수 없습니다."
@@ -335,4 +390,4 @@ def find_candidates(db, user, conditions, origin_text, latitude, longitude):
     candidate["_score"] = 10 * ("preferences" in evidence) + len(candidate["review_summary"]) + 5 * bool(priced_match) - (candidate["distance_metres"] or 0) / 1000
     result.append(candidate)
   result.sort(key=lambda item: item["_score"], reverse=True)
-  return result[:12], notices
+  return result, notices

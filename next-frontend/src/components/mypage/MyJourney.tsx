@@ -133,7 +133,12 @@ export default function MyJourney({
   return (
     <section className="surface mt-6 mobile:mt-[1.2rem]" aria-labelledby="visit-journey-title">
       <div className="section-heading">
-        <h2 className="section-title" id="visit-journey-title">나의 여정</h2>
+        <div>
+          <h2 className="section-title" id="visit-journey-title">나의 여정</h2>
+          <p className="helper mobile:text-[.7rem]">
+            다녀온 식당을 방문 순서대로 지도에서 보고, 남긴 리뷰의 별점도 확인할 수 있어요.
+          </p>
+        </div>
       </div>
       {loading && <Loading text="방문 기록을 불러오고 있어요."/>}
       {error && <ErrorState message={error} retry={reload}/>}

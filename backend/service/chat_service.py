@@ -15,18 +15,20 @@ from config.settings import settings
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import Address, Conversation, Message, Post, Restaurant, SearchRecord, Visit, utcnow
 from service.common import owned, timestamp
+from service.good_price import branch_key, normalized
 from service.kakao_navigation import geocode_origin, travel_times
 from service.prompt_service import active_prompts
-from service.restaurant_service import find_candidates, order_estimate, visit_schedule
+from service.restaurant_service import confirmed_menus, find_candidates, order_estimate, order_item, summarize_order, tag_match, visit_schedule, visit_time
 
 
 DISTANCE = r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|㎞|킬로(?:미터)?|m|미터)"
 CURRENT_LOCATION = re.compile(r"(?:내|제|현재|현)\s*위치|(?:내|제)\s*주변")
 CUISINE_WITH_SUFFIX = re.compile(r"(한식|중식|일식|양식|분식|이탈리안)\s*(?:집|식당|음식점)")
-UNVERIFIED_REASON_DETAIL = re.compile(
-  r"https?://|도보|걸어서|[0-9]{1,2}:[0-9]{2}|[0-9][0-9,.]*\s*(?:[만천]?\s*원|시간|분|시|km\b|m\b|미터)|[가-힣0-9]+(?:대로|로|길)\s+[0-9]",
-  re.IGNORECASE,
-)
+CUISINE_GROUPS = {"한식", "중식", "일식", "양식", "분식", "이탈리안", "아시안", "고기", "해산물", "채식", "뷔페", "카페"}
+CONDITION_EVIDENCE = {
+  "features": "features", "atmosphere": "atmosphere", "visit_at": "opening", "budget_total": "menu_budget",
+  "cuisine": "menu", "party_size": "menu", "purpose": "features", "radius_metres": "distance", "area": "area",
+}
 
 
 def requested_radius(message):
@@ -102,113 +104,214 @@ def personal_context(db, user):
   return {"preferences": user.preferences, "budget_min": user.budget_min, "budget_max": user.budget_max, "recent_searches": searches, "manually_visited_categories": visited, "liked_review_categories": reviewed}
 
 
-def reason_options(candidate, conditions):
-  category = category_label(candidate["category"])
-  labels = {
-    "area": "요청하신 지역에서 찾은 음식점입니다." if conditions.get("area") else f"등록된 음식 분류는 {category}입니다.",
-    "category": f"등록된 음식 분류는 {category}입니다.",
-    "community_reviews": "서비스에 등록된 음식점 리뷰를 참고할 수 있습니다.",
-    "preferences": "저장하신 선호 음식 분류에 해당합니다.",
-    "atmosphere": f"확인된 매장 정보에 ‘{conditions.get('atmosphere')}’ 분위기가 표시됩니다.",
-    "purpose": f"확인된 매장 정보에 ‘{conditions.get('purpose')}’ 태그가 표시됩니다.",
-  }
-  combo = candidate["menu_combination"]
-  if combo:
-    budget = conditions.get("budget_total")
-    if budget and combo["total"] <= budget:
-      labels["menu_budget"] = "확인된 메뉴 가격을 기준으로 요청하신 예산 안에서 주문할 수 있습니다."
+def related_features(tags, conditions):
+  if conditions.get("features"):
+    return [tag for feature in conditions["features"] if (tag := tag_match(tags, feature))]
+  purpose = conditions.get("purpose") or ""
+  if any(word in purpose for word in ("가족", "아이", "유아")):
+    features = ("유아의자", "주차", "단체석")
+  elif (conditions.get("party_size") or 0) >= 4 or any(word in purpose for word in ("모임", "회식", "단체")):
+    features = ("단체석", "예약", "룸")
+  elif "데이트" in purpose:
+    features = ("룸", "예약")
+  else:
+    features = ()
+  return [tag for feature in features if (tag := tag_match(tags, feature))]
+
+
+def reason_options(item, conditions):
+  category = category_label(item["category"])
+  cuisine = conditions.get("cuisine")
+  if cuisine and normalized(cuisine) in normalized(item["category"]):
+    category = cuisine
+  reasons = {"category": f"확인된 음식 분류는 {category}예요."}
+  if conditions.get("area"):
+    reasons["area"] = f"{conditions['area']}에서 찾아볼 수 있는 식당이에요."
+  if item["distance_metres"] is not None:
+    reasons["distance"] = f"검색 기준 위치에서 직선거리로 약 {item['distance_metres']:,}m예요."
+  features = related_features(item["verified_tags"], conditions)
+  if features:
+    names = ", ".join(f"‘{tag}’" for tag in dict.fromkeys(features))
+    purpose = conditions.get("purpose")
+    if purpose:
+      context = f"말씀하신 {purpose} 장소를 고를 때 참고할 수 있어요"
+    elif conditions.get("features"):
+      context = "말씀하신 시설 조건에 맞아요"
     else:
-      labels["menu_budget"] = "확인된 메뉴 가격을 참고해 주문을 계획할 수 있습니다."
-  if candidate.get("confirmed_menu"):
-    labels["menu"] = f"확인된 메뉴에 ‘{candidate['confirmed_menu']}’가 있습니다."
-  if conditions.get("visit_at") and candidate["opening"]["label"] == "영업시간 내":
-    labels["opening"] = f"확인된 {candidate['visit_schedule']['basis']} 일정에서 요청하신 방문 시각이 영업시간에 해당합니다."
-  if candidate["distance_metres"] is not None:
-    labels["distance"] = f"검색 기준 위치에서 직선거리로 약 {candidate['distance_metres']:,}m입니다."
-  evidence = set(candidate["available_evidence"]) - {"menu_budget"}
-  return {key: label for key, label in labels.items() if key in evidence or key in {"menu", "menu_budget", "opening"}}
+      context = "여럿이 함께 갈 곳을 찾을 때 참고할 수 있어요"
+    reasons["features"] = f"매장 안내에 {names} 정보가 확인돼 {context}."
+  if "atmosphere" in item["available_evidence"]:
+    reasons["atmosphere"] = f"확인된 매장 안내에 ‘{conditions['atmosphere']}’ 분위기가 표시돼요."
+  if "purpose" in item["available_evidence"] and not features:
+    reasons["purpose"] = f"확인된 매장 안내에 ‘{conditions['purpose']}’ 이용 안내가 있어요."
+  if conditions.get("visit_at") and item["opening"]["label"] == "영업시간 내":
+    moment = visit_time(datetime.fromisoformat(conditions["visit_at"]))
+    reasons["opening"] = f"등록된 일정에서 {moment.month}월 {moment.day}일 {moment:%H:%M}에 방문할 수 있는 식당이에요."
+  order = item["menu_combination"]
+  if order:
+    first = order["items"][0]
+    party = order["party_size"]
+    if party and order["total"] is not None:
+      reasons["menu"] = f"{party}명 주문 예시에 확인된 메뉴 ‘{first['name']}’ {first['quantity']}개를 담았어요."
+    else:
+      reasons["menu"] = f"이 매장에서 판매하는 메뉴 중 ‘{first['name']}’ 메뉴를 추천드려요."
+    budget = conditions.get("budget_total")
+    if budget and order["total"] is not None and order["total"] <= budget:
+      reasons["menu_budget"] = f"확인된 메뉴 단가 기준으로 이 주문의 예상 총액은 {order['total']:,}원으로 예산 안에 들어요."
+  if "preferences" in item["available_evidence"]:
+    reasons["preferences"] = "저장하신 선호 음식 분류에 해당해요."
+  if item["review_summary"]:
+    reasons["community_reviews"] = "이웃이 남긴 음식점 리뷰도 확인할 수 있어요."
+  return reasons
 
 
-def checked_reason(value, sentences, address):
-  reason = " ".join((value or "").split())
-  if not reason or ">" in reason or (address and address in reason):
+def grounded_reason(options, ranked, changed):
+  priorities = ["features", "atmosphere", "opening", "menu_budget", "menu"]
+  preferred = [key for key in ranked.evidence_keys if key not in {"category", "area"}] if ranked else []
+  updated = [evidence for field, evidence in CONDITION_EVIDENCE.items() if field in changed]
+  keys = dict.fromkeys([*updated, *priorities, "purpose", *preferred, "distance"])
+  return " ".join([options[key] for key in keys if key in options][:2]) or options["category"]
+
+
+def prepare_candidate(candidate, conditions, required_budget):
+  tags = candidate["verified_tags"]
+  features = conditions.get("features") or []
+  if any(not tag_match(tags, feature) for feature in features):
     return None
-  unconfirmed = reason
-  for sentence in sentences:
-    unconfirmed = unconfirmed.replace(sentence, "")
-  return None if UNVERIFIED_REASON_DETAIL.search(unconfirmed) else reason
-
-
-def grounded_reason(options, ranked, conditions, address):
-  keys = [key for key in dict.fromkeys(ranked.evidence_keys) if key in options]
-  requested = [key for key, applies in [("opening", conditions.get("visit_at")), ("menu_budget", conditions.get("budget_total")),
-                                       ("menu", conditions.get("cuisine") or not keys)] if applies and key in options]
-  if requested and not any(key in keys for key in requested):
-    keys.insert(0, requested[0])
-    return " ".join(dict.fromkeys(options[key] for key in keys[:2]))
-  sentences = list(dict.fromkeys(options[key] for key in keys)) or [options["category"]]
-  reason = checked_reason(ranked.reason, sentences, address) if keys else None
-  return reason or " ".join(sentences[:2])
-
-
-def prepare_candidate(candidate, conditions):
+  if conditions.get("atmosphere") and "atmosphere" not in candidate["available_evidence"]:
+    return None
+  if conditions.get("visit_at") and candidate["opening"]["label"] != "영업시간 내":
+    return None
   item = candidate.copy()
+  item["menus"] = confirmed_menus(item["menus"])
+  cuisine = normalized(conditions.get("cuisine") or "")
+  item["eligible_menus"] = item["menus"]
+  if cuisine and cuisine not in CUISINE_GROUPS:
+    item["eligible_menus"] = [menu for menu in item["menus"] if cuisine in normalized(menu["name"])]
+  item["menu_combination"] = order_estimate(item["eligible_menus"], conditions.get("party_size"))
+  order = item["menu_combination"]
+  if required_budget and (not order or order["total"] is None or order["total"] > required_budget):
+    return None
   visit_at = datetime.fromisoformat(conditions["visit_at"]) if conditions.get("visit_at") else None
   item["visit_schedule"] = visit_schedule(item["hours"] or {}, item["closed_dates"], visit_at)
-  item["menu_combination"] = order_estimate(item["menus"], conditions.get("party_size"), conditions.get("cuisine"))
-  order = item["menu_combination"]
-  menu = next((menu["name"] for menu in item["menus"] if menu["available"] and menu["is_current"]), None)
-  item["confirmed_menu"] = order["items"][0]["name"] if order else menu
   item["confirmed_matches"] = [tag for tag in item["confirmed_matches"] if tag != "메뉴 가격 확인"]
-  if order:
-    item["confirmed_matches"].append("메뉴 가격 확인")
+  item["confirmed_matches"].extend(related_features(tags, conditions))
   item["travel_label"] = "이동 시간 확인 불가"
   return item
 
 
-def menu_suggestion(order, party_size):
+def verified_order(order, candidate, conditions, required_budget):
+  fallback = candidate["menu_combination"]
   if order is None:
-    return None
-  total = order.estimated_total
-  return {
-    "items": [menu.model_dump() for menu in order.items],
-    "total": total,
-    "per_person": (total + party_size - 1) // party_size if total is not None and party_size else None,
-    "party_size": party_size,
-    "basis": "AI가 제안한 주문입니다. 실제 메뉴와 가격은 매장 안내를 확인하세요.",
-  }
+    return fallback
+  menus = {normalized(menu["name"]): menu for menu in candidate["eligible_menus"]}
+  items = []
+  seen = set()
+  party = conditions.get("party_size")
+  for entry in order.items:
+    key = normalized(entry.name)
+    if key not in menus or key in seen:
+      return fallback
+    seen.add(key)
+    items.append(order_item(menus[key], entry.quantity))
+  if party and sum((item["servings"] or 1) * item["quantity"] for item in items) < party:
+    return fallback
+  verified = summarize_order(items, party)
+  if verified["total"] is None and fallback and fallback["total"] is not None:
+    return fallback
+  if required_budget and (verified["total"] is None or verified["total"] > required_budget):
+    return fallback
+  return verified
 
 
 def markdown_text(value):
   return re.sub(r"([\\`*_\[\]<>#!])", r"\\\1", value.replace("\n", " "))
 
 
-def recommendation_reply(items):
+def recommendation_reply(items, conditions):
   if not items:
-    return "현재 확인 가능한 정보로는 추천을 확정하기 어려워요. 지역이나 음식 종류를 조금 넓혀 주세요."
+    detail = "조건에 맞는 식당을 확인하지 못했어요."
+    if conditions.get("visit_at"):
+      return detail + " 방문 시간을 조금 조정해서 다시 찾아볼까요?"
+    if conditions.get("features") or conditions.get("atmosphere"):
+      return detail + " 가장 중요한 시설이나 분위기 조건 한 가지만 골라 주시겠어요?"
+    if conditions.get("budget_total") and not conditions.get("budget_from_profile"):
+      return detail + " 확인한 메뉴 가격을 기준으로 예산 범위를 조금 넓혀 볼까요?"
+    return detail + " 가까운 다른 동네까지 넓혀서 찾아볼까요?"
   paragraphs = []
-  restaurant_names = Counter(item["name"] for item in items)
-  for index, item in enumerate(items, 1):
-    name = markdown_text(item["name"]) + (f" · 결과 {index}" if restaurant_names[item["name"]] > 1 else "")
-    description = markdown_text(item["explanation"])
+  restaurant_names = Counter(normalized(item["name"]) for item in items)
+  for item in items:
+    name = markdown_text(item["name"])
+    if restaurant_names[normalized(item["name"])] > 1:
+      name += " · " + markdown_text(item["address"])
+    description = markdown_text(item["reason"])
     order = item["menu_combination"]
     if order:
       order_items = ", ".join(f"{markdown_text(menu['name'])} × {menu['quantity']}" for menu in order["items"])
-      description += f"\n\n추천 주문은 {order_items}입니다."
+      description += f"\n\n추천 주문은 {order_items}예요."
       if order["total"] is not None:
         amount = f"총 {order['total']:,}원"
         if order["per_person"] is not None:
-          amount += f"(1인당 {order['per_person']:,}원)"
-        description += f" AI 예상 금액은 {amount}입니다."
+          amount += f" · 1인당 {order['per_person']:,}원"
+        description += f" 예상 금액은 {amount}이에요."
+        if order["party_size"] and any(menu["servings"] is None for menu in order["items"]):
+          description += " 메뉴가 몇 인분인지는 방문 전에 확인해 주세요."
+      else:
+        description += " 예상 금액은 확인 필요로 표시했어요."
+    else:
+      description += "\n\n추천 메뉴 확인 필요 · 예상 금액 확인 필요"
     paragraphs.append(f"### {name}\n\n{description}")
+  if len(items) < 3:
+    paragraphs.insert(0, f"조건에 맞는 곳은 {len(items)}곳 확인했어요.")
+  if not conditions.get("cuisine") and len(items) >= 2:
+    paragraphs.append("드시고 싶은 메뉴가 있으시면 그 메뉴로 더 좁혀볼까요?")
+  elif not conditions.get("visit_at") and len(items) >= 2 and any(item["hours"] for item in items):
+    paragraphs.append("방문하실 시간이 정해져 있으면 그 시간에 맞춰 더 좁혀볼까요?")
   return "\n\n".join(paragraphs)
 
 
-def recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompt):
-  current = {row["id"]: prepare_candidate(row, conditions) for row in candidates}
-  budget = conditions.get("budget_total")
-  current = {identity: row for identity, row in current.items()
-             if not budget or not row["menu_combination"] or row["menu_combination"]["total"] <= budget}
+def opening_reply(conditions, first):
+  area = markdown_text(conditions.get("area") or "")
+  cuisine = markdown_text(conditions.get("cuisine") or "")
+  atmosphere = markdown_text(conditions.get("atmosphere") or "")
+  purpose = markdown_text(conditions.get("purpose") or "")
+  party = conditions.get("party_size")
+  radius = conditions.get("radius_metres")
+  group = "혼자 드시기 좋은 " if party == 1 else f"{party}명이 함께 드실 " if party else ""
+  location = f"{area}에서 " if area else ""
+  if radius:
+    location += f"기준 위치에서 {radius:,}m 안에 있는 "
+  atmosphere = f"‘{atmosphere}’ 분위기의 " if atmosphere else ""
+  place = location + group + atmosphere
+  place += f"{cuisine} 식당" if cuisine else "식당"
+  if purpose:
+    place = f"{purpose}에 맞춰 {place}"
+  reply = f"안녕하세요! {place}을 찾고 계시군요." if first else f"네, 이번에는 {place}으로 살펴볼게요."
+  if conditions.get("visit_at"):
+    moment = visit_time(datetime.fromisoformat(conditions["visit_at"]))
+    reply += f" {moment.month}월 {moment.day}일 {moment:%H:%M} 방문을 기준으로 볼게요."
+  if budget := conditions.get("budget_total"):
+    subject = "저장하신 가격대" if conditions.get("budget_from_profile") else "말씀하신 예산"
+    reply += f" {subject}인 {budget:,}원도 참고했어요."
+  if conditions.get("features"):
+    features = ", ".join(markdown_text(feature) for feature in conditions["features"])
+    reply += f" 말씀하신 시설 조건({features})도 함께 살폈어요."
+  return reply
+
+
+def recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompt, changed=()):
+  required_budget = None if conditions.get("budget_from_profile") else conditions.get("budget_total")
+  current, branches = {}, set()
+  for candidate in candidates:
+    branch = branch_key(candidate["name"], candidate["address"])
+    if branch in branches:
+      continue
+    item = prepare_candidate(candidate, conditions, required_budget)
+    if item:
+      current[item["id"]] = item
+      branches.add(branch)
+    if len(current) == 12:
+      break
   if not current:
     return [], []
   options = {identity: reason_options(row, conditions) for identity, row in current.items()}
@@ -218,22 +321,31 @@ def recommend(client, candidates, conditions, profile, latitude, longitude, depa
       "id": row["id"], "name": row["name"], "address": row["address"], "category": row["category"],
       "display_category": category_label(row["category"]), "confirmed_matches": row["confirmed_matches"],
       "opening": row["opening"], "reason_options": options[row["id"]],
-      "menus": [{key: menu[key] for key in ("name", "price", "servings")} for menu in row["menus"]
-                if menu["available"] and menu["is_current"]][:10],
+      "menus": [{key: menu[key] for key in ("name", "price", "servings")} for menu in row["eligible_menus"][:10]],
     } for row in current.values()],
   }, RecommendationResult)
-  selected, seen = [], set()
+  chosen = {}
   for entry in ranked.items:
     identity = entry.restaurant_id
-    if identity not in current or identity in seen:
+    if identity not in current:
       raise HTTPException(502, "AI가 선택한 음식점을 확인하지 못했습니다. 다시 시도해 주세요.")
-    seen.add(identity)
+    chosen.setdefault(identity, entry)
+  for identity in current:
+    if len(chosen) >= 3:
+      break
+    chosen.setdefault(identity, None)
+  selected = []
+  for identity, entry in chosen.items():
     item = current[identity]
-    item["reason"] = grounded_reason(options[identity], entry, conditions, item["address"])
-    item["explanation"] = checked_reason(entry.explanation, options[identity].values(), item["address"]) or item["reason"]
-    item["menu_combination"] = menu_suggestion(entry.order, conditions.get("party_size"))
-    item.pop("confirmed_menu", None)
-    item["budget_note"] = None if item["menu_combination"] else "예상 금액 확인 필요"
+    item["menu_combination"] = verified_order(entry.order if entry else None, item, conditions, required_budget)
+    item["reason"] = grounded_reason(reason_options(item, conditions), entry, changed)
+    total_known = item["menu_combination"] is not None and item["menu_combination"]["total"] is not None
+    item["budget_note"] = None if total_known else "예상 금액 확인 필요"
+    if total_known:
+      item["confirmed_matches"].append("메뉴 가격 확인")
+    item["confirmed_matches"] = list(dict.fromkeys(item["confirmed_matches"]))
+    item.pop("verified_tags", None)
+    item.pop("eligible_menus", None)
     item.pop("_score", None)
     selected.append(item)
   stored = [item.copy() for item in selected]
@@ -307,18 +419,28 @@ def chat(db, user, data):
     clarification = "총예산에 맞춰 메뉴를 고를게요. 몇 분이 함께 방문하시나요?"
   if conditions.get("radius_metres") and latitude is None:
     clarification = "반경 검색의 기준 위치를 정해 주세요. 현재 위치나 지도에서 선택한 지점을 사용할 수 있어요."
-  if not conditions.get("budget_total") and conditions.get("party_size") and user.budget_max and "budget_total" not in update.clear_fields:
+  if previous.get("budget_from_profile") and update.budget_total is None and not update.new_search:
+    conditions["budget_total"] = None
+  budget_cleared = "budget_total" in update.clear_fields or (
+    previous.get("budget_cleared") and not update.new_search and update.budget_total is None
+  )
+  if budget_cleared:
+    conditions["budget_cleared"] = True
+  elif not conditions.get("budget_total") and conditions.get("party_size") and user.budget_max:
     conditions["budget_total"] = user.budget_max * conditions["party_size"]
+    conditions["budget_from_profile"] = True
   recommendations, stored, notices = [], [], []
   if clarification:
     reply = clarification
   else:
     candidates, notices = find_candidates(db, user, conditions, origin_text, latitude, longitude)
-    if not candidates:
-      reply = "조건에 맞는 등록 음식점을 찾지 못했어요. 지역이나 음식 종류를 조금 넓혀 주세요."
-    else:
-      recommendations, stored = recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompts["ranking"])
-      reply = recommendation_reply(recommendations)
+    if candidates:
+      changed = {key for key in changes if previous.get(key) != conditions.get(key)} if history else set()
+      if conditions.get("budget_from_profile"):
+        changed.discard("budget_total")
+      recommendations, stored = recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompts["ranking"], changed)
+    reply = recommendation_reply(recommendations, conditions)
+  reply = opening_reply(conditions, not history) + "\n\n" + reply
   if notices:
     reply += "\n\n" + " ".join(notices)
   if conditions.get("radius_metres") and latitude is not None:

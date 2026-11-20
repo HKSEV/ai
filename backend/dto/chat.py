@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -22,7 +22,7 @@ class ChatRequest(InputModel):
 
 class SearchConditions(InputModel):
   new_search: bool = False
-  clear_fields: list[Literal["area", "cuisine", "budget_total", "party_size", "visit_at", "atmosphere", "purpose", "radius_metres"]] = Field(default_factory=list, max_length=8)
+  clear_fields: list[Literal["area", "cuisine", "budget_total", "party_size", "visit_at", "atmosphere", "purpose", "features", "radius_metres"]] = Field(default_factory=list, max_length=9)
   area: str | None = Field(default=None, max_length=100)
   cuisine: str | None = Field(default=None, max_length=80)
   budget_total: int | None = Field(default=None, ge=1000, le=20000000)
@@ -30,6 +30,7 @@ class SearchConditions(InputModel):
   visit_at: datetime | None = None
   atmosphere: str | None = Field(default=None, max_length=100)
   purpose: str | None = Field(default=None, max_length=100)
+  features: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None, max_length=6)
   radius_metres: int | None = Field(default=None, gt=0, le=20000000)
   clarification: str | None = Field(default=None, max_length=200)
 
@@ -46,7 +47,7 @@ class SuggestedOrder(InputModel):
 
 class RankedRestaurant(InputModel):
   restaurant_id: int
-  evidence_keys: list[Literal["area", "category", "menu", "menu_budget", "opening", "community_reviews", "preferences", "distance", "atmosphere", "purpose"]] = Field(default_factory=list, max_length=10)
+  evidence_keys: list[Literal["area", "category", "menu", "menu_budget", "opening", "community_reviews", "preferences", "distance", "atmosphere", "purpose", "features"]] = Field(default_factory=list, max_length=11)
   reason: str | None = Field(default=None, max_length=650)
   explanation: str | None = Field(default=None, max_length=650)
   order: SuggestedOrder | None = None

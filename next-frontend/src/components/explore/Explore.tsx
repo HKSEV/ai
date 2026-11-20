@@ -310,7 +310,8 @@ export default function Explore() {
     conditions?.budget_total ? "총 " + money(conditions.budget_total) : null,
     conditions?.radius_metres ? "반경 " + distanceLabel(conditions.radius_metres) : null,
     conditions?.atmosphere,
-    conditions?.purpose
+    conditions?.purpose,
+    ...(conditions?.features ?? [])
   ].filter(Boolean);
   return (
     <div

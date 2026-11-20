@@ -44,6 +44,7 @@ export interface Conditions {
   visit_at?: string | null;
   atmosphere?: string | null;
   purpose?: string | null;
+  features?: string[] | null;
   radius_metres?: number | null;
   search_origin?: (Coordinates & { label: string }) | null;
 }
@@ -111,7 +112,7 @@ export interface Restaurant extends RestaurantOption {
     items: {
       menu_id?: number;
       name: string;
-      price?: number;
+      price?: number | null;
       quantity: number;
       servings?: number | null;
     }[];
