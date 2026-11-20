@@ -8,8 +8,7 @@ from sqlalchemy import case, func, select, update
 
 from config.settings import settings
 from entity.models import Menu, Post, Restaurant, Visit, utcnow
-from service.common import timestamp
-from service.good_price import normalized, price_menus
+from service.common import normalized, timestamp
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -154,18 +153,22 @@ def minimum_order(available, party_size):
 
 
 def confirmed_menus(menus):
-  confirmed = {}
+  by_name = {}
   for menu in menus:
-    if not menu["available"] or not menu["is_current"]:
-      continue
-    key = normalized(menu["name"])
-    first = confirmed.setdefault(key, menu.copy())
-    if first["price"] is not None and first["price"] <= 0:
-      first["price"] = None
-    for field in ("price", "servings"):
-      if first[field] != menu[field]:
-        first[field] = None
-  return list(confirmed.values())
+    if menu["available"] and menu["is_current"]:
+      by_name.setdefault(normalized(menu["name"]), []).append(menu)
+  confirmed = []
+  for entries in by_name.values():
+    priced = [menu for menu in entries if menu["price"] and menu["price"] > 0]
+    prices = {menu["price"] for menu in priced}
+    servings = {menu["servings"] for menu in entries if menu["servings"]}
+    source = (priced or entries)[0].copy()
+    price_conflict = any(menu.get("price_conflict") for menu in entries)
+    source["price"] = next(iter(prices)) if len(prices) == 1 and not price_conflict else None
+    source["servings"] = next(iter(servings)) if len(servings) == 1 else None
+    source.pop("price_conflict", None)
+    confirmed.append(source)
+  return confirmed
 
 
 def order_estimate(menus, party_size):
@@ -244,8 +247,6 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
                  "available": menu.available, "source": menu.source, "source_url": menu.source_url,
                  "checked_at": timestamp(menu.checked_at), "is_current": bool(menu.source and fresh(menu.checked_at))}
                 for menu in menus]
-  registered_names = {normalized(menu["name"]) for menu in registered if menu["is_current"]}
-  published = [] if item.is_demo else price_menus(settings.good_price_menu_file, item.name, item.address)
   reviews = db.scalars(select(Post).where(Post.restaurant_id == item.id, Post.kind == "review").order_by(Post.created_at.desc(), Post.id.desc()).limit(REVIEW_SUMMARY_LIMIT)).all()
   visit_at = datetime.fromisoformat(conditions["visit_at"]) if conditions and conditions.get("visit_at") else None
   map_target = quote(item.name, safe="")
@@ -263,7 +264,7 @@ def serialize_restaurant(db, item, conditions=None, latitude=None, longitude=Non
     "is_demo": item.is_demo, "hours": item.hours if hours_current else None, "closed_dates": (item.closed_dates or []) if hours_current else [],
     "hours_source": item.hours_source, "hours_source_url": item.hours_source_url, "hours_checked_at": timestamp(item.hours_checked_at),
     "opening": opening_status(item, visit_at),
-    "menus": registered + [menu for menu in published if normalized(menu["name"]) not in registered_names],
+    "menus": registered,
     "menu_combination": menu_combination(menus, conditions.get("party_size") if conditions else None),
     "distance_metres": round(distance) if distance is not None else None, "distance_basis": "좌표로 계산한 직선거리", "travel_minutes": None,
     "map_url": map_url, "directions_url": directions,

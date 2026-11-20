@@ -38,8 +38,6 @@ class Settings:
   kakao_mobility_key: str = os.getenv("KAKAO_MOBILITY_REST_API_KEY", "")
   gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
   gemini_model: str = os.getenv("GEMINI_MODEL", "")
-  good_price_api_key: str = os.getenv("GOOD_PRICE_API_KEY", "")
-  good_price_menu_file: Path = Path(os.getenv("GOOD_PRICE_MENU_FILE", str(ROOT / "data" / "good-price-menus.json")))
   session_days: int = int(os.getenv("SESSION_DAYS", "14"))
   cookie_secure: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
   include_demo: bool = os.getenv("INCLUDE_DEMO_DATA", "false").lower() == "true"

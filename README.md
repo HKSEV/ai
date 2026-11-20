@@ -115,12 +115,10 @@ Compose는 MySQL과 FastAPI를 실행하고 DB와 업로드를 각각 named volu
 | 백엔드 | `KAKAO_REST_API_KEY` | 카카오 로그인 REST API 키 |
 | 백엔드 | `KAKAO_CLIENT_SECRET` | 카카오 앱에서 Client Secret을 사용한다면 설정 |
 | 백엔드 | `KAKAO_REDIRECT_URI` | 카카오에 등록한 공개 API의 `/api/auth/kakao/callback` 전체 주소 |
-| 백엔드 | `KAKAO_LOCAL_REST_API_KEY` | 실제 장소 검색과 텍스트 출발지의 좌표 조회 |
+| 백엔드 | `KAKAO_LOCAL_REST_API_KEY` | 장소 검색·출발지 좌표 조회와 Daum 웹문서 검색에 사용하는 REST API 키 |
 | 백엔드 | `KAKAO_PLACE_STORAGE_ALLOWED` | 저장·재이용 권한 확인 후 true. 기본 false |
 | 백엔드 | `KAKAO_MOBILITY_REST_API_KEY` | 자동차 길찾기 API 이용 권한을 부여받은 앱의 REST API 키 |
 | 백엔드 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google GenAI 인증 및 사용 가능한 구조화 출력 지원 모델 ID |
-| 백엔드 | `GOOD_PRICE_API_KEY` | 선택 사항. 행정안전부 착한가격업소 메뉴·가격 자료를 내려받을 때 사용하는 공공데이터포털 인증키 |
-| 백엔드 | `GOOD_PRICE_MENU_FILE` | 선택 사항. 내려받은 메뉴 자료의 경로. 기본값은 `backend/data/good-price-menus.json` |
 | 백엔드 | `SESSION_DAYS`, `COOKIE_SECURE` | 세션 기본 14일. HTTPS API는 `COOKIE_SECURE=true`, HTTP 로컬 개발은 `false` |
 | 백엔드 | `INCLUDE_DEMO_DATA` | 개발 예시 노출 여부. 기본 false |
 | 백엔드 | `DATA_MAX_AGE_DAYS` | 메뉴·영업시간 신뢰 기한. 기본 30일 |
@@ -166,16 +164,11 @@ uv run python -m scripts.import_restaurants data/restaurants.example.json --demo
 - 외부 리뷰·실시간 영업·대기·결제 추정액·재방문율·외부 방문 인증·영수증 검증은 제공처 미연동 상태입니다. 해당 지표는 null/정보 없음으로 유지하고 `service/provider_contracts.py`에 교체 가능한 인터페이스를 두었습니다.
 - 조건 추출에는 입력 대화, 출발지, 취향·예산, 최근 검색과 방문·리뷰의 음식 분류를 사용합니다. 운영 시 개인정보 처리 안내와 제공처의 보관 조건을 적용하십시오.
 
-### 착한가격업소 메뉴·가격 자료 사용
+### 매장 메뉴와 가격 확인
 
-[공공데이터포털의 행정안전부 착한가격업소 등록현황](https://www.data.go.kr/data/15172358/fileData.do)에서 인증키를 발급받고 백엔드 `GOOD_PRICE_API_KEY`에 설정하세요. 백엔드가 읽을 파일을 다음 명령으로 갱신하세요.
+추천 후보의 식당명과 주소로 [Daum 웹문서 검색](https://developers.kakao.com/docs/ko/daum-search/dev-guide#search-web)을 요청합니다. 백엔드에 `KAKAO_LOCAL_REST_API_KEY`를 설정하세요. 이 값이 비어 있으면 `KAKAO_REST_API_KEY`를 사용합니다.
 
-```bash
-cd backend
-uv run python -m scripts.sync_good_price_menus
-```
-
-분기별 자료에 있는 노원구 착한가격업소의 일부 메뉴만 제공됩니다. 식당명과 주소가 일치하는 지점에만 자료를 적용하고, 카드에 자료의 출처와 기준일을 표시합니다. 현재 연동한 자료의 기준일은 2026년 9월 30일이며, 기준일로부터 120일 동안 사용합니다. 후속 분기 자료의 API와 기준일은 `backend/service/good_price.py`에서 갱신하세요. 배포 서버에서 파일을 유지하려면 백엔드의 영속 디스크에 `GOOD_PRICE_MENU_FILE`을 지정하고 같은 경로에 저장하세요. 이 연동에는 DB 마이그레이션이 필요하지 않습니다.
+검색 결과는 매장 페이지를 찾는 데 사용합니다. 지점명과 주소가 일치하는 매장 원문에서 공개 메뉴 데이터 또는 가격표를 읽고, 카드에 원문 링크와 조회 시각을 표시합니다. 이미지에만 있는 가격, 변동가, 주소가 일치하지 않는 자료는 확인 필요로 처리합니다. 웹 조회를 사용할 수 없으면 출처와 확인 시각이 등록된 메뉴를 사용합니다.
 
 ### 이미 등록된 음식점의 영업 일정 갱신
 

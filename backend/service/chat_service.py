@@ -14,9 +14,9 @@ from config.gemini import get_client
 from config.settings import settings
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import Address, Conversation, Message, Post, Restaurant, SearchRecord, Visit, utcnow
-from service.common import owned, timestamp
-from service.good_price import branch_key, normalized
+from service.common import branch_key, normalized, owned, timestamp
 from service.kakao_navigation import geocode_origin, travel_times
+from service.menu_search import find_published_menus
 from service.prompt_service import active_prompts
 from service.restaurant_service import confirmed_menus, find_candidates, order_estimate, order_item, summarize_order, tag_match, visit_schedule, visit_time
 
@@ -173,17 +173,19 @@ def grounded_reason(options, ranked, changed):
   return " ".join([options[key] for key in keys if key in options][:2]) or options["category"]
 
 
-def prepare_candidate(candidate, conditions, required_budget):
+def meets_branch_conditions(candidate, conditions):
   tags = candidate["verified_tags"]
   features = conditions.get("features") or []
-  if any(not tag_match(tags, feature) for feature in features):
-    return None
-  if conditions.get("atmosphere") and "atmosphere" not in candidate["available_evidence"]:
-    return None
-  if conditions.get("visit_at") and candidate["opening"]["label"] != "영업시간 내":
-    return None
+  return (
+    all(tag_match(tags, feature) for feature in features)
+    and (not conditions.get("atmosphere") or "atmosphere" in candidate["available_evidence"])
+    and (not conditions.get("visit_at") or candidate["opening"]["label"] == "영업시간 내")
+  )
+
+
+def prepare_candidate(candidate, conditions, required_budget, published_menus):
   item = candidate.copy()
-  item["menus"] = confirmed_menus(item["menus"])
+  item["menus"] = confirmed_menus([*item["menus"], *published_menus])
   cuisine = normalized(conditions.get("cuisine") or "")
   item["eligible_menus"] = item["menus"]
   if cuisine and cuisine not in CUISINE_GROUPS:
@@ -195,7 +197,7 @@ def prepare_candidate(candidate, conditions, required_budget):
   visit_at = datetime.fromisoformat(conditions["visit_at"]) if conditions.get("visit_at") else None
   item["visit_schedule"] = visit_schedule(item["hours"] or {}, item["closed_dates"], visit_at)
   item["confirmed_matches"] = [tag for tag in item["confirmed_matches"] if tag != "메뉴 가격 확인"]
-  item["confirmed_matches"].extend(related_features(tags, conditions))
+  item["confirmed_matches"].extend(related_features(item["verified_tags"], conditions))
   item["travel_label"] = "이동 시간 확인 불가"
   return item
 
@@ -301,15 +303,17 @@ def opening_reply(conditions, first):
 
 def recommend(client, candidates, conditions, profile, latitude, longitude, departure, prompt, changed=()):
   required_budget = None if conditions.get("budget_from_profile") else conditions.get("budget_total")
-  current, branches = {}, set()
+  branches = {}
   for candidate in candidates:
-    branch = branch_key(candidate["name"], candidate["address"])
-    if branch in branches:
-      continue
-    item = prepare_candidate(candidate, conditions, required_budget)
+    if meets_branch_conditions(candidate, conditions):
+      branch = branch_key(candidate["name"], candidate["address"])
+      branches.setdefault(branch, candidate)
+  published = find_published_menus(list(branches.values()))
+  current = {}
+  for candidate in branches.values():
+    item = prepare_candidate(candidate, conditions, required_budget, published.get(candidate["id"], []))
     if item:
       current[item["id"]] = item
-      branches.add(branch)
     if len(current) == 12:
       break
   if not current:

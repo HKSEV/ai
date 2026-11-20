@@ -29,7 +29,7 @@ from entity.models import Address, AdminAssignment, AuthSession, Conversation, M
 from main import app
 from scripts.init_db import upgrade_columns
 from scripts.migrate_admin import migrate
-from service import auth_service, chat_service, good_price, restaurant_service
+from service import auth_service, chat_service, menu_search, restaurant_service
 from service.restaurant_service import menu_combination, opening_status
 
 
@@ -547,53 +547,81 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(generate.call_count, 1)
 
   @patch("service.chat_service.get_client")
-  def test_good_price_snapshot_uses_published_prices_and_exact_branch_address(self, client):
+  def test_chat_searches_the_restaurant_name_and_verifies_branch_menu_prices(self, client):
     with self.factory() as db:
       first = Restaurant(name="검증용 국수집", address="서울 노원구 동일로 11", area="공릉동", category="국수", source="검증")
       second = Restaurant(name=first.name, address="서울 노원구 동일로 111", area=first.area, category="국수", source="검증")
-      db.add_all([first, second])
+      third = Restaurant(name=first.name, address="서울 노원구 동일로 211", area=first.area, category="국수", source="검증")
+      db.add_all([first, second, third])
+      db.flush()
+      db.add(Menu(restaurant_id=first.id, name="잔치국수", servings=1, source="등록 메뉴", checked_at=utcnow()))
       db.commit()
-    listed = {
-      "광역": "서울", "기초": "노원구", "업소명": "검증용국수집", "주소": "서울특별시 노원구 동일로11 (공릉동)",
-      "착한가격메뉴 품목1": "잔치국수", "착한가격메뉴 가격1": 6500,
-      "착한가격메뉴 품목2": "비빔국수", "착한가격메뉴 가격2": 7000,
-    }
-    pages = {
-      "1": [listed, {**listed, "기초": "도봉구", "착한가격메뉴 가격1": 5000}],
-      "2": [{**listed, "착한가격메뉴 가격2": 7500}],
-    }
-    visited_pages = []
+
+    def branch(street, dish, price):
+      return {
+        "@type": "Restaurant", "name": "검증용국수집", "address": street,
+        "hasMenu": {"@type": "Menu", "hasMenuItem": {
+          "@type": "MenuItem", "name": dish,
+          "offers": {"@type": "Offer", "price": price, "priceCurrency": "KRW"},
+        }},
+      }
+
+    storefront = {"@graph": [
+      {"@type": "WebSite", "publisher": {"name": "검증용 국수집"}},
+      branch("서울특별시 노원구 동일로111 (공릉동)", "비빔국수", "8,500원부터"),
+      branch("서울특별시 노원구 동일로11 (공릉동)", "잔치국수", "6,500"),
+    ]}
+    review_page = {"@graph": [
+      {"@type": "WebSite", "publisher": {"name": "검증 블로그"}},
+      branch(third.address, "임의국수", 9999),
+    ]}
+    queries = []
+    source = "https://restaurant.example/menus"
 
     def respond(request):
-      self.assertEqual(str(request.url).split("?")[0], good_price.API_URL)
-      self.assertEqual(request.headers["Authorization"], "Infuser test-key")
-      page = request.url.params["page"]
-      visited_pages.append(page)
-      return httpx.Response(200, json={"matchCount": 3, "data": pages[page]})
+      if request.url.host == "dapi.kakao.com":
+        self.assertEqual(str(request.url).split("?")[0], menu_search.WEB_SEARCH_URL)
+        self.assertEqual(request.headers["Authorization"], "KakaoAK test-key")
+        queries.append(request.url.params["query"])
+        return httpx.Response(200, json={"documents": [
+          {"url": "https://review.example/menu", "contents": "검색 미리보기 임의 메뉴 4,500원"},
+          {"url": source},
+        ]})
+      self.assertNotIn("Authorization", request.headers)
+      self.assertEqual(request.url.host, "93.184.216.34")
+      if request.url.path == "/robots.txt":
+        return httpx.Response(404)
+      contents = storefront if request.headers["Host"] == "restaurant.example" else review_page
+      html = '<script type="application/ld+json">' + json.dumps(contents, ensure_ascii=False) + '</script>'
+      return httpx.Response(200, text=html, headers={"Content-Type": "text/html; charset=utf-8"})
 
-    with httpx.Client(transport=httpx.MockTransport(respond)) as api:
-      snapshot = good_price.fetch_price_snapshot(api, "test-key")
-    self.assertEqual(visited_pages, ["1", "2"])
-    self.assertEqual(len(snapshot["menus"]), 4)
-    with tempfile.TemporaryDirectory() as directory:
-      path = Path(directory) / "menus.json"
-      path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-      config = replace(settings, good_price_menu_file=path)
-      with patch("service.restaurant_service.settings", config), patch("service.good_price.utcnow", return_value=good_price.SNAPSHOT_DATE + timedelta(days=60)):
-        available = self.client.get(f"/api/restaurants/{first.id}").json()
-        self.assertEqual({menu["name"]: menu["price"] for menu in available["menus"]}, {"잔치국수": 6500, "비빔국수": None})
-        self.assertTrue(all(menu["source_url"] == good_price.SOURCE_URL for menu in available["menus"]))
-        self.assertTrue(all(menu["checked_at"] == snapshot["checked_at"] for menu in available["menus"]))
-        self.assertEqual(self.client.get(f"/api/restaurants/{second.id}").json()["menus"], [])
-        with self.ai(conditions={"area": "공릉동", "cuisine": "국수", "party_size": 2},
-                     ranked={"items": [{"restaurant_id": first.id, "order": {"items": [{"name": "잔치국수", "quantity": 2}]}}]}):
-          search = self.client.post("/api/chat", json={"message": "공릉동 둘이 먹을 국수집"})
-        self.assertEqual(search.status_code, 200, search.text)
-        first_result, second_result = search.json()["messages"][-1]["recommendations"]
-        self.assertEqual((first_result["id"], first_result["menu_combination"]["total"]), (first.id, 13000))
-        self.assertIsNone(second_result["menu_combination"])
-      with patch("service.good_price.utcnow", return_value=good_price.SNAPSHOT_DATE + timedelta(days=121)):
-        self.assertEqual(good_price.price_menus(path, first.name, first.address), [])
+    transport = httpx.MockTransport(respond)
+    create_client = httpx.Client
+    config = replace(settings, kakao_local_key="", kakao_rest_api_key="test-key")
+    order = {"items": [{"name": "잔치국수", "quantity": 2}], "estimated_total": 4500}
+    with (
+      patch("service.menu_search.settings", config),
+      patch("service.menu_search.httpx.Client", side_effect=lambda **kwargs: create_client(transport=transport, **kwargs)),
+      patch("service.public_web.public_address", return_value="93.184.216.34"),
+      self.ai(conditions={"area": "공릉동", "cuisine": "국수", "party_size": 2},
+              ranked={"items": [{"restaurant_id": first.id, "order": order}, {"restaurant_id": second.id, "order": order}]}),
+    ):
+      response = self.client.post("/api/chat", json={"message": "공릉동 둘이 먹을 국수집"})
+    self.assertEqual(response.status_code, 200, response.text)
+    self.assertCountEqual(queries, [f"{row.name} {row.address} 메뉴 가격" for row in (first, second, third)])
+    message = response.json()["messages"][-1]
+    with_price, without_price, without_menu = message["recommendations"]
+    self.assertEqual((with_price["id"], without_price["id"], without_menu["id"]), (first.id, second.id, third.id))
+    self.assertEqual(with_price["menus"][0]["source_url"], source)
+    self.assertEqual(with_price["menus"][0]["servings"], 1)
+    self.assertEqual(with_price["menu_combination"]["total"], 13000)
+    self.assertEqual(with_price["menu_combination"]["per_person"], 6500)
+    self.assertEqual([menu["name"] for menu in without_price["menus"]], ["비빔국수"])
+    self.assertIsNone(without_price["menu_combination"]["total"])
+    self.assertIsNone(without_menu["menu_combination"])
+    self.assertIn("예상 금액은 확인 필요", message["content"])
+    for fabricated in ("9,999원", "4,500원", "8,500원"):
+      self.assertNotIn(fabricated, message["content"])
 
   def test_reviewed_restaurants_updates_until_the_current_users_last_review_is_deleted(self):
     lookup = "/api/restaurants/reviewed?ids=" + str(self.restaurant_id) + "&ids=999"
