@@ -33,7 +33,7 @@ export interface KakaoMarker {
 }
 
 interface KakaoInfoWindow {
-  open(map: KakaoMap, marker: KakaoMarker): void;
+  open(map: KakaoMap, marker?: KakaoMarker): void;
   close(): void;
 }
 
@@ -62,7 +62,16 @@ export interface KakaoMaps {
   InfoWindow: new (options: {
     content: HTMLElement;
     removable: boolean;
+    position?: KakaoLatLng;
+    disableAutoPan?: boolean;
   }) => KakaoInfoWindow;
+  CustomOverlay: new (options: {
+    map: KakaoMap;
+    position: KakaoLatLng;
+    content: HTMLElement;
+    clickable: boolean;
+    yAnchor: number;
+  }) => { setMap(map: KakaoMap | null): void };
   event: {
     addListener(target: KakaoMap, type: "click", listener: MapClick): void;
     addListener(

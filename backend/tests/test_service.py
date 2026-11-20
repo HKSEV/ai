@@ -95,6 +95,13 @@ class ServiceTests(unittest.TestCase):
   def post(self, **overrides):
     return {"kind": "experience", "title": "산책 서비스 사용 후기", "content": "동네에서 새로운 한 끼를 찾는 경험이 좋았습니다.", **overrides}
 
+  def visit(self, **overrides):
+    result = self.client.post("/api/me/visits", json={
+      "restaurant_id": self.restaurant_id, "visited_on": "2026-11-01", **overrides,
+    })
+    self.assertEqual(result.status_code, 201, result.text)
+    return result.json()
+
   def image(self, kind="photo"):
     stream = io.BytesIO()
     Image.new("RGB", (16, 16), "green").save(stream, format="PNG")
@@ -159,7 +166,7 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(self.client.delete("/api/me/addresses/" + str(other["id"])).status_code, 204)
     self.assertTrue(self.client.get("/api/me/addresses").json()[0]["is_default"])
 
-  def test_v14_upgrades_existing_columns_without_losing_address_or_visit_status(self):
+  def test_init_db_upgrades_existing_columns_and_preserves_sessions(self):
     with self.factory() as db:
       db.add(Address(user_id=self.user_id, label="집", address="서울 노원구 공릉로 1", is_default=True))
       db.add(Visit(user_id=self.user_id, restaurant_id=self.restaurant_id, visited_on=date(2026, 11, 1), verification_status="verified"))
@@ -167,12 +174,15 @@ class ServiceTests(unittest.TestCase):
     with self.engine.begin() as connection:
       connection.execute(text("ALTER TABLE addresses DROP COLUMN detail_address"))
       connection.execute(text("ALTER TABLE visits DROP COLUMN admin_verified"))
+      connection.execute(text("ALTER TABLE auth_sessions DROP COLUMN welcome_pending"))
       upgrade_columns(connection)
       upgrade_columns(connection)
     address = self.client.get("/api/me/addresses").json()[0]
     self.assertEqual((address["address"], address["detail_address"], address["is_default"]), ("서울 노원구 공릉로 1", "", True))
     visit = self.client.get("/api/me/visits").json()["items"][0]
     self.assertEqual((visit["verification_status"], visit["verification_reason"], visit["admin_verified"]), ("verified", None, False))
+    self.assertEqual(self.client.get("/api/auth/me").json()["id"], self.user_id)
+    self.assertEqual(self.client.post("/api/auth/welcome").json(), {"show_welcome": False})
 
   def test_community_crud_filters_pagination_and_ownership(self):
     response = self.client.post("/api/posts", json=self.post())
@@ -192,15 +202,63 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(self.client.delete("/api/posts/" + str(identity)).status_code, 204)
     self.assertEqual(self.client.get("/api/posts/" + str(identity)).status_code, 404)
 
-  def test_review_fields_and_forged_verification_rejected(self):
+  def test_review_requires_own_matching_visit_and_uses_the_recorded_date(self):
     self.assertEqual(self.client.post("/api/posts", json=self.post(kind="review")).status_code, 422)
-    payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=5, visited_on="2026-11-01")
+    payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=5)
+    self.assertEqual(self.client.post("/api/posts", json=payload).status_code, 422)
+    self.login(self.other_token)
+    other_visit = self.visit()["id"]
+    self.login(self.token)
+    self.assertEqual(self.client.post("/api/posts", json={**payload, "visit_id": other_visit}).status_code, 404)
+    self.assertEqual(self.client.get(f"/api/me/visits/options?restaurant_id={self.restaurant_id}").json(), [])
+    with self.factory() as db:
+      another = Restaurant(name="다른 음식점", address="서울 노원구 상계동", category="한식", source="테스트")
+      db.add(another)
+      db.commit()
+      another_id = another.id
+    visit = self.visit()
+    payload["visit_id"] = visit["id"]
+    self.assertEqual(self.client.post("/api/posts", json={**payload, "restaurant_id": another_id}).status_code, 422)
+    self.assertEqual(self.client.post("/api/posts", json={**payload, "visited_on": "2026-10-31"}).status_code, 422)
     response = self.client.post("/api/posts", json=payload)
     self.assertEqual(response.status_code, 201, response.text)
+    self.assertEqual(response.json()["visited_on"], visit["visited_on"])
+    self.assertEqual(response.json()["visit_id"], visit["id"])
     self.assertEqual(response.json()["verification_status"], "not_verified")
     self.assertEqual(self.client.post("/api/posts", json={**payload, "verification_status": "verified"}).status_code, 422)
     self.assertEqual(self.client.post("/api/posts", json={**payload, "rating": 6}).status_code, 422)
     self.assertEqual(self.client.post("/api/posts", json={**payload, "restaurant_id": 99999}).status_code, 404)
+    path = f"/api/posts/{response.json()['id']}"
+    self.assertEqual(self.client.put(path, json={**payload, "visit_id": None}).status_code, 422)
+
+  def test_journey_orders_repeated_visits_and_only_includes_their_linked_reviews(self):
+    with self.factory() as db:
+      restaurant = db.get(Restaurant, self.restaurant_id)
+      restaurant.latitude, restaurant.longitude = 37.65, 127.06
+      another = Restaurant(name="다른 음식점", address="서울 노원구 상계동", category="한식", source="테스트")
+      db.add(another)
+      db.commit()
+      another_id = another.id
+    newest = self.visit(visited_on="2026-11-02")
+    first = self.visit()
+    same_day = self.visit()
+    without_coordinates = self.visit(restaurant_id=another_id, visited_on="2026-11-03")
+    reviewed = self.client.post("/api/posts", json=self.post(kind="review", restaurant_id=self.restaurant_id,
+                                                             rating=4, visit_id=first["id"])).json()
+    self.login(self.other_token)
+    self.visit(visited_on="2026-10-25")
+    self.login(self.token)
+    choices = self.client.get(f"/api/me/visits/options?restaurant_id={self.restaurant_id}").json()
+    self.assertEqual([item["id"] for item in choices], [newest["id"], same_day["id"], first["id"]])
+    journey = self.client.get("/api/me/visits/journey").json()
+    self.assertEqual([item["id"] for item in journey], [first["id"], same_day["id"], newest["id"], without_coordinates["id"]])
+    self.assertEqual([(item["latitude"], item["longitude"]) for item in journey[:3]], [(37.65, 127.06)] * 3)
+    self.assertEqual([item["reviews"] for item in journey], [[{"id": reviewed["id"], "rating": 4}], [], [], []])
+    self.assertIsNone(journey[-1]["latitude"])
+    self.assertNotIn("note", journey[0])
+    self.assertEqual(self.client.delete(f"/api/me/visits/{first['id']}").status_code, 204)
+    self.assertEqual(self.client.get(f"/api/posts/{reviewed['id']}").status_code, 200)
+    self.assertTrue(all(not item["reviews"] for item in self.client.get("/api/me/visits/journey").json()))
 
   def test_receipt_private_and_never_automatically_verified(self):
     receipt = self.image("receipt")
@@ -446,10 +504,11 @@ class ServiceTests(unittest.TestCase):
     lookup = "/api/restaurants/reviewed?ids=" + str(self.restaurant_id) + "&ids=999"
     payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01")
     self.login(self.other_token)
-    self.assertEqual(self.client.post("/api/posts", json=payload).status_code, 201)
+    self.assertEqual(self.client.post("/api/posts", json={**payload, "visit_id": self.visit()["id"]}).status_code, 201)
     self.login(self.token)
     self.assertEqual(self.client.get(lookup).json(), [])
     own_ids = []
+    payload["visit_id"] = self.visit()["id"]
     for _ in range(2):
       created = self.client.post("/api/posts", json=payload)
       self.assertEqual(created.status_code, 201, created.text)
@@ -465,15 +524,16 @@ class ServiceTests(unittest.TestCase):
   def test_recommendation_review_lookup_uses_live_reviews_and_checks_all_for_ownership(self):
     lookup = f"/api/restaurants/reviews?ids={self.restaurant_id}&ids=999"
     payload = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01")
-    own = self.client.post("/api/posts", json=payload).json()["id"]
+    own = self.client.post("/api/posts", json={**payload, "visit_id": self.visit()["id"]}).json()["id"]
     self.login(self.other_token)
+    payload["visit_id"] = self.visit()["id"]
     for _ in range(5):
       neighbor = self.client.post("/api/posts", json=payload).json()["id"]
     update = self.client.put(f"/api/posts/{neighbor}", json={**payload, "rating": 3, "content": "같은 식당의 이웃 리뷰를 수정했습니다."})
     self.assertEqual(update.status_code, 200, update.text)
     self.login(self.token)
     current, empty = self.client.get(lookup).json()
-    self.assertEqual(empty, {"id": 999, "reviewed": False, "review_summary": []})
+    self.assertEqual(empty, {"id": 999, "visited": False, "reviewed": False, "review_summary": []})
     self.assertTrue(current["reviewed"])
     self.assertEqual(len(current["review_summary"]), 5)
     self.assertNotIn(own, [item["id"] for item in current["review_summary"]])
@@ -486,6 +546,20 @@ class ServiceTests(unittest.TestCase):
     current = self.client.get(lookup).json()[0]
     self.assertFalse(current["reviewed"])
     self.assertNotIn(neighbor, [item["id"] for item in current["review_summary"]])
+
+  def test_recommendation_visit_badge_tracks_the_current_users_last_visit(self):
+    path = f"/api/restaurants/reviews?ids={self.restaurant_id}"
+    self.login(self.other_token)
+    self.visit()
+    self.login(self.token)
+    self.assertFalse(self.client.get(path).json()[0]["visited"])
+    first, last = self.visit(), self.visit(visited_on="2026-11-02")
+    self.assertEqual(first["verification_status"], "not_verified")
+    self.assertTrue(self.client.get(path).json()[0]["visited"])
+    self.assertEqual(self.client.delete(f"/api/me/visits/{first['id']}").status_code, 204)
+    self.assertTrue(self.client.get(path).json()[0]["visited"])
+    self.assertEqual(self.client.delete(f"/api/me/visits/{last['id']}").status_code, 204)
+    self.assertFalse(self.client.get(path).json()[0]["visited"])
 
   @patch("service.chat_service.sleep")
   def test_gemini_retries_temporary_unavailability_once(self, pause):
@@ -607,6 +681,7 @@ class ServiceTests(unittest.TestCase):
       response = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
       self.assertEqual(response.status_code, 303)
       self.assertTrue(response.headers["location"].endswith("/onboarding/address"))
+      self.assertEqual(self.client.post("/api/auth/welcome").json(), {"show_welcome": False})
       user = self.client.get("/api/auth/me").json()
       self.assertEqual(user["role"], "ADMIN")
       nickname = user["nickname"]
@@ -632,11 +707,14 @@ class ServiceTests(unittest.TestCase):
       self.assertFalse(self.client.get("/api/auth/me").json()["address_setup_pending"])
       self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
       self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+      self.assertEqual(self.client.post("/api/auth/welcome").status_code, 401)
       url = self.client.get("/api/auth/kakao/authorize").json()["authorization_url"]
       state = httpx.URL(url).params["state"]
       returning = self.client.get("/api/auth/kakao/callback", params={"code": "test-code", "state": state}, follow_redirects=False)
-      self.assertTrue(returning.headers["location"].endswith("/explore"))
+      self.assertTrue(returning.headers["location"].endswith("/welcome"))
       returning_user = self.client.get("/api/auth/me").json()
+      self.assertEqual(self.client.post("/api/auth/welcome").json(), {"show_welcome": True})
+      self.assertEqual(self.client.post("/api/auth/welcome").json(), {"show_welcome": False})
       self.assertEqual(returning_user["nickname"], nickname)
       self.assertEqual(returning_user["role"], "ADMIN")
       self.assertEqual({key: returning_user[key] for key in preferences}, preferences)
@@ -830,7 +908,7 @@ class ServiceTests(unittest.TestCase):
     self.login_admin()
     self.login(self.other_token)
     photo = self.image()
-    review = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visited_on="2026-11-01", photo_ids=[photo])
+    review = self.post(kind="review", restaurant_id=self.restaurant_id, rating=4, visit_id=self.visit()["id"], photo_ids=[photo])
     review_id = self.client.post("/api/posts", json=review).json()["id"]
     experience_id = self.client.post("/api/posts", json=self.post()).json()["id"]
     changed = {"title": "관리자 수정 제목", "content": "관리자가 수정한 내용입니다.", "rating": 3}

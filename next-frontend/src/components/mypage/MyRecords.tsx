@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import { LuArrowUpRight, LuPlus, LuTrash2 } from "react-icons/lu";
 import { api, deleteConversation, errorMessage } from "@/app/lib/api";
@@ -26,8 +26,10 @@ import VisitForm from "./VisitForm";
 const recordTitle = "flex items-center gap-2 text-[.9rem] mobile:text-[.8rem]";
 const recordDetail = "mt-[.3rem] text-[.7rem] text-muted mobile:text-[.65rem]";
 
-export default function MyRecords() {
-  const [tab, setTab] = useState<"conversations" | "visits" | "posts">("conversations");
+export default function MyRecords({ onVisitsChanged }: { onVisitsChanged: () => void }) {
+  const searchParams = useSearchParams();
+  const [selectedTab, setTab] = useState<"conversations" | "visits" | "posts" | null>(null);
+  const tab = selectedTab ?? (searchParams.get("tab") === "visits" ? "visits" : "conversations");
   const [page, setPage] = useState(1);
   const path =
     tab === "conversations"
@@ -61,7 +63,10 @@ export default function MyRecords() {
       if (removing.type === "conversations") {
         await deleteConversation(removing.id);
         dispatch(conversationDeleted(removing.id));
-      } else await api("/api/me/visits/" + removing.id, { method: "DELETE" });
+      } else {
+        await api("/api/me/visits/" + removing.id, { method: "DELETE" });
+        onVisitsChanged();
+      }
       if (page > 1 && query.data?.items.length === 1) setPage(page - 1);
       else query.reload();
       close();
@@ -73,7 +78,7 @@ export default function MyRecords() {
     }
   };
   return (
-    <section className="surface mt-6 mobile:mt-[1.2rem]">
+    <section className="surface mt-6 scroll-mt-24 mobile:mt-[1.2rem]" id="visit-records">
       <div className="section-heading mobile:items-start">
         <div>
           <h2 className="section-title">나의 산책 기록</h2>
@@ -219,6 +224,7 @@ export default function MyRecords() {
               onSaved={() => {
                 close();
                 query.reload();
+                onVisitsChanged();
                 toast("방문 기록을 저장했어요.");
               }}
             />

@@ -33,8 +33,9 @@ def callback(
       raise HTTPException(400, "카카오 로그인이 취소되었습니다.")
     kakao_id, email = auth_service.kakao_identity(code)
     user = auth_service.find_or_create_user(db, kakao_id, email)
-    token = auth_service.create_session(db, user)
-    destination = "/onboarding/address" if user.address_setup_pending else "/explore"
+    welcome_pending = not user.address_setup_pending
+    token = auth_service.create_session(db, user, welcome_pending=welcome_pending)
+    destination = "/welcome" if welcome_pending else "/onboarding/address"
     response = RedirectResponse(settings.frontend_url + destination, status_code=303)
     response.set_cookie(auth_service.SESSION_COOKIE, token, max_age=settings.session_days * 86400, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
   except HTTPException:
@@ -46,6 +47,11 @@ def callback(
 @router.get("/me")
 def me(user=Depends(auth_service.current_user)):
   return serialize_user(user)
+
+
+@router.post("/welcome")
+def welcome(session=Depends(auth_service.current_session), db=Depends(get_db)):
+  return {"show_welcome": auth_service.consume_welcome(db, session)}
 
 
 @router.post("/logout", status_code=204)

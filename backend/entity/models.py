@@ -63,6 +63,7 @@ class AuthSession(Base):
   __tablename__ = "auth_sessions"
   token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
   user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+  welcome_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
   expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
   created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

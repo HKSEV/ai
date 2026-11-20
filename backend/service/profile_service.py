@@ -1,8 +1,8 @@
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from entity.models import Address, Restaurant, Upload, User, Visit
+from entity.models import Address, Post, Restaurant, Upload, User, Visit
 from service.auth_service import nickname_key
 from service.common import owned, page_result, timestamp
 from service.upload_service import delete_unlinked_uploads
@@ -117,6 +117,32 @@ def visits(db, user, page, size, *, include_private=True):
   total = db.scalar(select(func.count()).select_from(query.subquery()))
   rows = db.scalars(query.order_by(Visit.visited_on.desc(), Visit.id.desc()).offset((page - 1) * size).limit(size)).all()
   return page_result([serialize_visit(db, item, include_private=include_private) for item in rows], total, page, size)
+
+
+def visit_options(db, user, restaurant_id):
+  rows = db.execute(select(Visit.id, Visit.visited_on).where(
+    Visit.user_id == user.id, Visit.restaurant_id == restaurant_id,
+  ).order_by(Visit.visited_on.desc(), Visit.id.desc()))
+  return [{"id": row.id, "visited_on": row.visited_on.isoformat()} for row in rows]
+
+
+def visit_journey(db, user):
+  rows = db.execute(select(
+    Visit.id, Visit.restaurant_id, Restaurant.name, Visit.visited_on, Restaurant.latitude, Restaurant.longitude,
+    Post.id.label("review_id"), Post.rating,
+  ).join(Restaurant, Restaurant.id == Visit.restaurant_id).outerjoin(Post, and_(
+    Post.visit_id == Visit.id, Post.kind == "review", Post.user_id == Visit.user_id,
+    Post.restaurant_id == Visit.restaurant_id, Post.visited_on == Visit.visited_on,
+  )).where(Visit.user_id == user.id).order_by(Visit.visited_on, Visit.id, Post.id))
+  results = {}
+  for row in rows:
+    visit = results.setdefault(row.id, {
+      "id": row.id, "restaurant_id": row.restaurant_id, "restaurant_name": row.name,
+      "visited_on": row.visited_on.isoformat(), "latitude": row.latitude, "longitude": row.longitude, "reviews": [],
+    })
+    if row.review_id is not None and row.rating is not None:
+      visit["reviews"].append({"id": row.review_id, "rating": row.rating})
+  return list(results.values())
 
 
 def save_visit(db, user, data, identity=None):

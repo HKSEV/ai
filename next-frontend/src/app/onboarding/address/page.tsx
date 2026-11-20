@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { LuPartyPopper } from "react-icons/lu";
 import { api, json } from "@/app/lib/api";
 import type { User } from "@/app/types/Service";
 import AuthGuard from "@/components/layout/AuthGuard";
+import AuthSplash, { AUTH_SPLASH_DURATION } from "@/components/layout/AuthSplash";
 import AddressForm from "@/components/map/AddressForm";
 import { PreferenceFields, readPreferenceFields } from "@/components/mypage/ProfileFields";
 import { setUser } from "@/store/authSlice";
@@ -17,24 +17,15 @@ export default function AddressOnboardingPage() {
   const [completed, setCompleted] = useState<User | null>(null);
   useEffect(() => {
     if (!completed) return;
-    const timer = window.setTimeout(() => dispatch(setUser(completed)), 1600);
+    const timer = window.setTimeout(() => dispatch(setUser(completed)), AUTH_SPLASH_DURATION);
     return () => window.clearTimeout(timer);
   }, [completed, dispatch]);
   return (
     <AuthGuard addressSetup>
-      <main className="grid min-h-dvh place-items-center p-[1.2rem]">
-        {completed ? (
-          <section
-            className="surface w-full max-w-[30rem] py-10 text-center motion-safe:animate-enter"
-            role="status">
-            <span className="mx-auto mb-5 grid size-16 place-items-center rounded-full
-              bg-forest-soft text-[1.9rem] text-forest">
-              <LuPartyPopper aria-hidden/>
-            </span>
-            <h1 className="text-[1.65rem] mobile:text-[1.35rem]">가입을 축하해요!</h1>
-            <p className="mt-3 text-sm text-muted">{completed.nickname}님의 첫 맛집 산책을 시작해요.</p>
-          </section>
-        ) : user && (
+      {completed ? (
+        <AuthSplash nickname={completed.nickname}/>
+      ) : user && (
+        <main className="grid min-h-dvh place-items-center p-[1.2rem]">
           <section className="surface w-full max-w-[41rem] motion-safe:animate-enter">
             <div className="mb-8">
               <h1 className="text-[1.9rem] mobile:text-[1.5rem]">
@@ -57,8 +48,8 @@ export default function AddressOnboardingPage() {
               <PreferenceFields user={user}/>
             </AddressForm>
           </section>
-        )}
-      </main>
+        </main>
+      )}
     </AuthGuard>
   );
 }

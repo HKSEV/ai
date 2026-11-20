@@ -47,6 +47,16 @@ def visits(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=30), user=
   return service.visits(db, user, page, size)
 
 
+@router.get("/visits/options")
+def visit_options(restaurant_id: int = Query(gt=0), user=Depends(current_user), db=Depends(get_db)):
+  return service.visit_options(db, user, restaurant_id)
+
+
+@router.get("/visits/journey")
+def visit_journey(user=Depends(current_user), db=Depends(get_db)):
+  return service.visit_journey(db, user)
+
+
 @router.post("/visits", status_code=201)
 def create_visit(data: VisitInput, user=Depends(current_user), db=Depends(get_db)):
   return service.save_visit(db, user, data)

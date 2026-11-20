@@ -184,10 +184,10 @@ test('cards use the Kakao place details link and display the suggested order', a
   assert.equal(card.queryByRole('link', { name: '지도 보기' }), null);
 });
 
-test('saved recommendations show live neighbor reviews and refresh the current user mark', async () => {
+test('saved recommendations refresh review and visit marks without a new chat', async () => {
   const old = { id: 1, rating: 4, excerpt: '대화 저장 당시 리뷰', created_at: '2026-11-10T00:00:00Z' };
   const current = { ...old, id: 2, excerpt: '새로 등록된 이웃 리뷰' };
-  let reviews = [{ id: restaurant.id, reviewed: false, review_summary: [current] }];
+  let reviews = [{ id: restaurant.id, visited: false, reviewed: false, review_summary: [current] }];
   const fallback = global.fetch;
   global.fetch = (url, options) => url.startsWith('/api/restaurants/reviews?')
     ? Promise.resolve(new Response(JSON.stringify(reviews))) : fallback(url, options);
@@ -197,15 +197,22 @@ test('saved recommendations show live neighbor reviews and refresh the current u
   await screen.findByText(current.excerpt);
   assert.equal(screen.queryByText(old.excerpt), null);
   assert.equal(screen.queryByText('리뷰를 작성했어요!'), null);
+  assert.equal(screen.queryByText('방문 O'), null);
+  reviews = [{ id: restaurant.id, visited: true, reviewed: false, review_summary: [current] }];
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  assert.ok(screen.getByText('방문 O'));
+  assert.equal(screen.queryByText('리뷰를 작성했어요!'), null);
   const updated = { ...current, excerpt: '수정한 이웃 리뷰' };
-  reviews = [{ id: restaurant.id, reviewed: true, review_summary: [updated] }];
+  reviews = [{ id: restaurant.id, visited: true, reviewed: true, review_summary: [updated] }];
   await act(async () => { window.dispatchEvent(new Event('focus')); });
   assert.ok(screen.getByText('리뷰를 작성했어요!'));
+  assert.equal(screen.getByText('방문 O').parentElement, screen.getByText('리뷰를 작성했어요!').parentElement);
   assert.ok(screen.getByText(updated.excerpt));
   assert.equal(screen.queryByText(current.excerpt), null);
-  reviews = [{ id: restaurant.id, reviewed: false, review_summary: [] }];
+  reviews = [{ id: restaurant.id, visited: false, reviewed: false, review_summary: [] }];
   await act(async () => { window.dispatchEvent(new Event('focus')); });
   assert.equal(screen.queryByText('리뷰를 작성했어요!'), null);
+  assert.equal(screen.queryByText('방문 O'), null);
   assert.equal(screen.queryByText('이웃 리뷰에서'), null);
 });
 

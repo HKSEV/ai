@@ -5,15 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LuArrowLeft, LuImagePlus, LuX } from "react-icons/lu";
 import { api, errorMessage, json } from "@/app/lib/api";
-import { today } from "@/app/lib/format";
 import { postPath } from "@/app/lib/paths";
-import useApiQuery from "@/app/lib/useApiQuery";
+import useApiQuery, { LIVE_REFRESH_INTERVAL } from "@/app/lib/useApiQuery";
 import type {
-  PageResult,
   Post,
   RestaurantChoice,
   UploadedFile,
-  Visit
+  VisitOption
 } from "@/app/types/Service";
 import RestaurantSelect from "@/components/ui/RestaurantSelect";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -30,14 +28,20 @@ export default function PostForm({ initial }: { initial?: Post }) {
       : null
   );
   const [rating, setRating] = useState(initial?.rating || 5);
-  const [date, setDate] = useState(initial?.visited_on || today());
   const [visitId, setVisitId] = useState(initial?.visit_id?.toString() || "");
   const [photos, setPhotos] = useState<string[]>(initial?.photo_ids || []);
   const [pending, setPending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const visits = useApiQuery<PageResult<Visit>>(
-    kind === "review" ? "/api/me/visits?size=30" : null
+  const isReview = kind === "review";
+  const visits = useApiQuery<VisitOption[]>(
+    isReview && restaurant ? "/api/me/visits/options?restaurant_id=" + restaurant.id : null,
+    LIVE_REFRESH_INTERVAL
+  );
+  const selectedVisit = visits.data?.find((visit) => String(visit.id) === visitId);
+  const visitsPerDay = new Map<string, number>();
+  visits.data?.forEach(({ visited_on }) =>
+    visitsPerDay.set(visited_on, (visitsPerDay.get(visited_on) ?? 0) + 1)
   );
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -66,8 +70,12 @@ export default function PostForm({ initial }: { initial?: Post }) {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (pending || uploading) return;
-    if (kind === "review" && !restaurant) {
+    if (isReview && !restaurant) {
       setError("검색 결과에서 음식점을 선택해 주세요.");
+      return;
+    }
+    if (isReview && !selectedVisit) {
+      setError("해당 음식점의 방문 기록을 선택해 주세요.");
       return;
     }
     setPending(true);
@@ -80,10 +88,9 @@ export default function PostForm({ initial }: { initial?: Post }) {
           title,
           content,
           photo_ids: photos,
-          restaurant_id: kind === "review" ? restaurant?.id : null,
-          rating: kind === "review" ? rating : null,
-          visited_on: kind === "review" ? date : null,
-          visit_id: kind === "review" && visitId ? Number(visitId) : null
+          restaurant_id: isReview ? restaurant?.id : null,
+          rating: isReview ? rating : null,
+          visit_id: isReview ? selectedVisit?.id : null
         })
       );
       toast(initial ? "이야기를 수정했어요." : "이야기를 남겼어요.");
@@ -141,7 +148,7 @@ export default function PostForm({ initial }: { initial?: Post }) {
             ))}
           </div>
         </fieldset>
-        {kind === "review" && (
+        {isReview && (
           <div
             className="flex flex-col gap-4 rounded-[.8rem] bg-[#f5f5ed] p-[1.4rem]
           mobile:p-4">
@@ -150,6 +157,7 @@ export default function PostForm({ initial }: { initial?: Post }) {
               onChange={(choice) => {
                 setRestaurant(choice);
                 setVisitId("");
+                setError("");
               }}
             />
             <div className="two-fields">
@@ -167,46 +175,45 @@ export default function PostForm({ initial }: { initial?: Post }) {
                 </select>
               </label>
               <label>
-                방문일
-                <input
+                방문 기록 연결
+                <select
                   className="field"
-                  type="date"
                   required
-                  max={today()}
-                  value={date}
+                  disabled={!visits.data?.length}
+                  value={selectedVisit ? visitId : ""}
                   onChange={(event) => {
-                    setDate(event.target.value);
-                    setVisitId("");
-                  }}
-                />
+                    setVisitId(event.target.value);
+                    setError("");
+                  }}>
+                  <option value="">방문일 선택</option>
+                  {visits.data?.map((visit) => (
+                    <option key={visit.id} value={visit.id}>
+                      {visit.visited_on}
+                      {(visitsPerDay.get(visit.visited_on) ?? 0) > 1 && " · 기록 " + visit.id}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
-            <label>
-              방문 기록 연결 (선택)
-              <select
-                className="field"
-                value={visitId}
-                onChange={(event) => {
-                  const visit = visits.data?.items.find(
-                    (item) => String(item.id) === event.target.value
-                  );
-                  setVisitId(event.target.value);
-                  if (visit) {
-                    setRestaurant({
-                      id: visit.restaurant_id,
-                      name: visit.restaurant_name
-                    });
-                    setDate(visit.visited_on);
-                  }
-                }}>
-                <option value="">연결하지 않음</option>
-                {visits.data?.items.map((visit) => (
-                  <option key={visit.id} value={visit.id}>
-                    {visit.restaurant_name} · {visit.visited_on}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {restaurant && visits.loading && (
+              <p className="helper" role="status">방문 기록을 불러오고 있어요.</p>
+            )}
+            {visits.error && (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="inline-error" role="alert">{visits.error}</p>
+                <button className="button button-secondary button-small" type="button" onClick={visits.reload}>
+                  다시 시도
+                </button>
+              </div>
+            )}
+            {restaurant && visits.data?.length === 0 && (
+              <p className="helper">
+                이 음식점의 방문 기록이 없어요.{" "}
+                <Link className="font-medium text-forest underline underline-offset-2" href="/mypage?tab=visits#visit-records">
+                  마이페이지에서 방문 기록을 먼저 등록해 주세요.
+                </Link>
+              </p>
+            )}
             <p className="helper">
               영수증 첨부와 방문 인증 완료는 구분됩니다. 검증 절차가 완료된 경우에만
               인증 표시가 붙어요.
@@ -296,7 +303,7 @@ export default function PostForm({ initial }: { initial?: Post }) {
           <button
             className="button button-primary"
             type="submit"
-            disabled={pending || uploading}>
+            disabled={pending || uploading || (isReview && !selectedVisit)}>
             {pending ? "저장 중…" : initial ? "수정하기" : "이야기 남기기"}
           </button>
         </div>

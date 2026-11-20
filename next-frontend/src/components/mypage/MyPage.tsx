@@ -1,15 +1,21 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useSelector } from "react-redux";
 import { LuArrowUpRight, LuLeaf } from "react-icons/lu";
+import useApiQuery from "@/app/lib/useApiQuery";
+import type { JourneyVisit } from "@/app/types/Service";
+import { Loading } from "@/components/ui/States";
 import type { RootState } from "@/store/store";
 import ProfileForm from "./ProfileForm";
 import AddressManager from "./AddressManager";
+import MyJourney from "./MyJourney";
 import MyRecords from "./MyRecords";
 
 export default function MyPage() {
   const user = useSelector((state: RootState) => state.auth.user);
+  const journey = useApiQuery<JourneyVisit[]>(user ? "/api/me/visits/journey" : null);
   if (!user) return null;
   return (
     <div className="content-page">
@@ -48,7 +54,10 @@ export default function MyPage() {
         <ProfileForm key={JSON.stringify(user)} user={user}/>
         <AddressManager/>
       </div>
-      <MyRecords/>
+      <MyJourney {...journey}/>
+      <Suspense fallback={<Loading/>}>
+        <MyRecords onVisitsChanged={journey.reload}/>
+      </Suspense>
     </div>
   );
 }

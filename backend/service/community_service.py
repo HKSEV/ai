@@ -12,7 +12,7 @@ def serialize_post(db, item, user):
   author = db.get(User, item.user_id)
   restaurant = db.get(Restaurant, item.restaurant_id) if item.restaurant_id else None
   visit = db.get(Visit, item.visit_id) if item.visit_id else None
-  if visit and (visit.restaurant_id, visit.visited_on) != (item.restaurant_id, item.visited_on):
+  if visit and (visit.user_id, visit.restaurant_id, visit.visited_on) != (item.user_id, item.restaurant_id, item.visited_on):
     visit = None
   return {
     "id": item.id, "kind": item.kind, "title": item.title, "content": item.content,
@@ -41,14 +41,16 @@ def list_posts(db, user, kind, mine, sort, page, size):
 
 def save_post(db, user, data, identity=None):
   item = owned(db, Post, identity, user.id, lock=True) if identity else Post(user_id=user.id)
+  values = data.model_dump()
   if data.restaurant_id:
     restaurant = db.get(Restaurant, data.restaurant_id, with_for_update={"read": True})
     if restaurant is None or (restaurant.deleted_at and item.restaurant_id != restaurant.id):
       raise HTTPException(404, "음식점을 찾을 수 없습니다.")
   if data.visit_id:
-    visit = owned(db, Visit, data.visit_id, user.id)
-    if visit.restaurant_id != data.restaurant_id or visit.visited_on != data.visited_on:
+    visit = owned(db, Visit, data.visit_id, user.id, lock=True)
+    if visit.restaurant_id != data.restaurant_id or (data.visited_on and visit.visited_on != data.visited_on):
       raise HTTPException(422, "방문 기록의 음식점과 방문일이 리뷰와 일치해야 합니다.")
+    values["visited_on"] = visit.visited_on
   for photo_id in data.photo_ids:
     photo = owned(db, Upload, photo_id, user.id)
     if photo.kind != "photo":
@@ -57,7 +59,7 @@ def save_post(db, user, data, identity=None):
     if used and used.id != identity:
       raise HTTPException(409, "다른 게시글에서 사용 중인 사진입니다.")
   previous_photos = item.photo_ids or []
-  for key, value in data.model_dump().items():
+  for key, value in values.items():
     setattr(item, key, value)
   item.updated_at = utcnow()
   if identity is None:

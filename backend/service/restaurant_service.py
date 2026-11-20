@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy import case, func, select, update
 
 from config.settings import settings
-from entity.models import Menu, Post, Restaurant, utcnow
+from entity.models import Menu, Post, Restaurant, Visit, utcnow
 from service.common import timestamp
 
 
@@ -23,7 +23,13 @@ def review_summary(row):
 
 
 def restaurant_reviews(db, ids, user_id):
-  summaries = {identity: {"id": identity, "reviewed": False, "review_summary": []} for identity in ids}
+  visited = set(db.scalars(select(Visit.restaurant_id).where(
+    Visit.user_id == user_id, Visit.restaurant_id.in_(ids),
+  ).distinct()))
+  summaries = {
+    identity: {"id": identity, "visited": identity in visited, "reviewed": False, "review_summary": []}
+    for identity in ids
+  }
   ranked = select(
     Post.id, Post.restaurant_id, Post.rating, Post.content, Post.created_at,
     func.row_number().over(partition_by=Post.restaurant_id, order_by=(Post.created_at.desc(), Post.id.desc())).label("position"),

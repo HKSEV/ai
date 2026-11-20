@@ -34,6 +34,7 @@
   --shadow-surface: 0 8px 28px #22334706;
 
   --animate-enter: slide-in .19s ease-out;
+  --animate-splash: slide-in .35s ease-out both;
   --animate-dialog: slide-in .17s ease-out both;
   --animate-backdrop: fade-in .17s ease-out both;
   --animate-toast: fade-in .16s ease-out both;

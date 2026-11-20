@@ -71,6 +71,7 @@ export interface OpeningPeriod {
 
 export interface RestaurantReviews {
   id: number;
+  visited: boolean;
   reviewed: boolean;
   review_summary: { id: number; rating: number; excerpt: string; created_at: string }[];
 }
@@ -184,6 +185,16 @@ export interface Visit {
   verification_reason: string | null;
   admin_verified: boolean;
   created_at: string;
+}
+
+export type VisitOption = Pick<Visit, "id" | "visited_on">;
+
+export interface JourneyVisit extends VisitOption {
+  restaurant_id: number;
+  restaurant_name: string;
+  latitude: number | null;
+  longitude: number | null;
+  reviews: { id: number; rating: number }[];
 }
 
 export interface UploadedFile {

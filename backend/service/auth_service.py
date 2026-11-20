@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import Cookie, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from config.database import get_db
@@ -104,26 +104,38 @@ def find_or_create_user(db, kakao_id, email=None):
   raise HTTPException(503, "닉네임 생성에 실패했습니다. 다시 시도해 주세요.")
 
 
-def create_session(db, user):
+def create_session(db, user, *, welcome_pending=False):
   token = secrets.token_urlsafe(48)
   expires = utcnow() + timedelta(days=settings.session_days)
   db.execute(delete(AuthSession).where(AuthSession.expires_at < utcnow()))
-  db.add(AuthSession(token_hash=digest(token), user_id=user.id, expires_at=expires))
+  db.add(AuthSession(token_hash=digest(token), user_id=user.id, expires_at=expires, welcome_pending=welcome_pending))
   db.commit()
   return token
 
 
-def current_user(db=Depends(get_db), token: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+def current_session(db=Depends(get_db), token: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
   session = db.get(AuthSession, digest(token)) if token and len(token) <= 200 else None
   if session is None or session.expires_at <= utcnow():
     if session:
       db.delete(session)
       db.commit()
     raise HTTPException(401, "로그인이 만료되었습니다. 다시 로그인해 주세요.")
+  return session
+
+
+def current_user(db=Depends(get_db), session=Depends(current_session)):
   user = db.get(User, session.user_id)
   if user is None:
     raise HTTPException(401, "다시 로그인해 주세요.")
   return user
+
+
+def consume_welcome(db, session):
+  result = db.execute(update(AuthSession).where(
+    AuthSession.token_hash == session.token_hash, AuthSession.welcome_pending.is_(True),
+  ).values(welcome_pending=False))
+  db.commit()
+  return result.rowcount == 1
 
 
 def current_admin(user=Depends(current_user)):

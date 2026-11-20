@@ -14,6 +14,7 @@ def upgrade_columns(connection):
   for table, column, definition in (
     ("addresses", "detail_address", "VARCHAR(200) NOT NULL DEFAULT ''"),
     ("visits", "admin_verified", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("auth_sessions", "welcome_pending", "BOOLEAN NOT NULL DEFAULT 0"),
   ):
     if column not in {entry["name"] for entry in schema.get_columns(table)}:
       connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
   LuArrowUpRight,
-  LuCheck, LuMapPin,
+  LuCheck,
+  LuFootprints,
+  LuMapPin,
   LuPhone,
   LuUtensils
 } from "react-icons/lu";
@@ -60,10 +62,19 @@ export default function RestaurantCard({
         </div>
         <LuUtensils className="mt-1 text-muted"/>
       </div>
-      {reviews?.reviewed && (
-        <span className="badge mt-[.65rem] gap-[.3rem]">
-          <LuCheck aria-hidden/>리뷰를 작성했어요!
-        </span>
+      {(reviews?.reviewed || reviews?.visited) && (
+        <div className="mt-[.65rem] flex flex-wrap gap-2">
+          {reviews?.reviewed && (
+            <span className="badge gap-[.3rem]">
+              <LuCheck aria-hidden/>리뷰를 작성했어요!
+            </span>
+          )}
+          {reviews?.visited && (
+            <span className="badge gap-[.3rem]">
+              <LuFootprints aria-hidden/>방문 O
+            </span>
+          )}
+        </div>
       )}
       <p className="mt-3 mb-[.35rem] flex items-start gap-[.4rem] text-xs
       leading-[1.55] text-muted">

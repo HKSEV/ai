@@ -26,8 +26,8 @@ class PostInput(PostTextInput):
 
   @model_validator(mode="after")
   def validate_review(self):
-    if self.kind == "review" and (not self.restaurant_id or self.rating is None or not self.visited_on):
-      raise ValueError("음식점 리뷰에는 음식점, 별점, 방문일이 필요합니다.")
+    if self.kind == "review" and (not self.restaurant_id or self.rating is None or not self.visit_id):
+      raise ValueError("음식점 리뷰에는 음식점, 별점, 본인의 방문 기록이 필요합니다.")
     if self.kind == "experience" and any(value is not None for value in [self.restaurant_id, self.rating, self.visited_on, self.visit_id]):
       raise ValueError("서비스 사용 후기에는 음식점 방문 정보를 입력할 수 없습니다.")
     self.photo_ids = list(dict.fromkeys(self.photo_ids))
