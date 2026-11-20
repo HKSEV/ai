@@ -1,3 +1,4 @@
+import logging
 import json
 import re
 from collections import Counter
@@ -45,12 +46,27 @@ def requested_radius(message):
   return int(metres)
 
 
+def without_generation_bounds(value):
+  if isinstance(value, list):
+    return [without_generation_bounds(item) for item in value]
+  if isinstance(value, dict):
+    return {
+      key: without_generation_bounds(item)
+      for key, item in value.items()
+      if key not in {"minItems", "maxItems", "minimum", "maximum"}
+    }
+  return value
+
+
 def generate_structured(client, prompt, data, schema):
   try:
     contents = json.dumps(data, ensure_ascii=False)
+    response_schema = schema.model_json_schema()
+    if schema is RecommendationResult:
+      response_schema = without_generation_bounds(response_schema)
     config = types.GenerateContentConfig(
       system_instruction=prompt, response_mime_type="application/json",
-      response_json_schema=schema.model_json_schema(), temperature=0.2,
+      response_json_schema=response_schema, temperature=0.2,
     )
     try:
       response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=config)
@@ -60,7 +76,11 @@ def generate_structured(client, prompt, data, schema):
       sleep(1)
       response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=config)
     return schema.model_validate_json(response.text)
-  except Exception:
+  except Exception as error:
+    logging.getLogger("nowon.ai").error(
+      "Gemini failure schema=%s error=%s status=%s",
+      schema.__name__, type(error).__name__, getattr(error, "code", None),
+    )
     raise HTTPException(502, "AI 응답을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.") from None
 
 
