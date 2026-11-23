@@ -43,12 +43,28 @@ def requested_radius(message):
   return int(metres)
 
 
+def without_generation_bounds(value):
+  if isinstance(value, dict):
+    return {
+      key: without_generation_bounds(item)
+      for key, item in value.items()
+      if key not in {"minItems", "maxItems", "minimum", "maximum"}
+    }
+  if isinstance(value, list):
+    return [without_generation_bounds(item) for item in value]
+  return value
+
+
 def generate_structured(client, prompt, data, schema):
   try:
     contents = json.dumps(data, ensure_ascii=False)
+    response_schema = schema.model_json_schema()
+    if schema is RecommendationResult:
+      # Gemini can reject the nested bounds. Pydantic still validates them after generation.
+      response_schema = without_generation_bounds(response_schema)
     config = types.GenerateContentConfig(
       system_instruction=prompt, response_mime_type="application/json",
-      response_json_schema=schema.model_json_schema(), temperature=0.2,
+      response_json_schema=response_schema, temperature=0.2,
     )
     try:
       response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=config)

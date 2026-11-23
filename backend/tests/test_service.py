@@ -603,6 +603,29 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(self.client.delete(f"/api/me/visits/{last['id']}").status_code, 204)
     self.assertFalse(self.client.get(path).json()[0]["visited"])
 
+  def test_gemini_omits_bounds_only_from_recommendation_request_schema(self):
+    items = [{"restaurant_id": self.restaurant_id,
+              "order": {"items": [{"name": "찌개 정식", "quantity": 1}], "estimated_total": 14000}}]
+    generate = Mock(return_value=SimpleNamespace(text=json.dumps({"items": items})))
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    result = chat_service.generate_structured(client, "검증용 프롬프트", {}, RecommendationResult)
+    self.assertEqual(result.items[0].order.estimated_total, 14000)
+    sent_schema = generate.call_args.kwargs["config"].response_json_schema
+    self.assertEqual(sent_schema["required"], ["items"])
+    self.assertEqual(sent_schema["$defs"]["SuggestedMenu"]["properties"]["quantity"]["type"], "integer")
+    for keyword in ("minItems", "maxItems", "minimum", "maximum"):
+      self.assertNotIn(f'"{keyword}":', json.dumps(sent_schema))
+
+    generate.return_value = SimpleNamespace(text=json.dumps({"items": items * 6}))
+    with self.assertRaises(HTTPException) as failure:
+      chat_service.generate_structured(client, "검증용 프롬프트", {}, RecommendationResult)
+    self.assertEqual(failure.exception.status_code, 502)
+
+    generate.return_value = SimpleNamespace(text='{"party_size":2}')
+    conditions = chat_service.generate_structured(client, "검증용 프롬프트", {}, SearchConditions)
+    self.assertEqual(conditions.party_size, 2)
+    self.assertEqual(generate.call_args.kwargs["config"].response_json_schema, SearchConditions.model_json_schema())
+
   @patch("service.chat_service.sleep")
   def test_gemini_retries_temporary_unavailability_once(self, pause):
     unavailable = ServerError(503, {"error": {"status": "UNAVAILABLE", "message": "검증용 일시 과부하"}})
