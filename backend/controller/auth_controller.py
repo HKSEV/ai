@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Cookie, Depends, Query, Response
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 
 from config.database import get_db
@@ -12,8 +12,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.get("/kakao/authorize")
-def authorize(response: Response, db=Depends(get_db)):
-  state, url = auth_service.authorize(db)
+def authorize(response: Response, origin: str | None = Header(default=None), db=Depends(get_db)):
+  state, url = auth_service.authorize(db, origin)
   response.set_cookie(auth_service.STATE_COOKIE, state, max_age=600, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
   return {"authorization_url": url}
 
@@ -26,20 +26,20 @@ def callback(
   cookie: str | None = Cookie(default=None, alias=auth_service.STATE_COOKIE),
   db=Depends(get_db),
 ):
-  from fastapi import HTTPException
+  frontend = settings.frontend_url
   try:
-    auth_service.consume_state(db, state, cookie)
+    frontend = auth_service.consume_state(db, state, cookie)
     if error or not code:
       raise HTTPException(400, "카카오 로그인이 취소되었습니다.")
     kakao_id, email = auth_service.kakao_identity(code)
     user = auth_service.find_or_create_user(db, kakao_id, email)
     welcome_pending = not user.address_setup_pending
     token = auth_service.create_session(db, user, welcome_pending=welcome_pending)
-    destination = "/welcome" if welcome_pending else "/onboarding/address"
-    response = RedirectResponse(settings.frontend_url + destination, status_code=303)
+    destination = "/welcome/" if welcome_pending else "/onboarding/address/"
+    response = RedirectResponse(frontend + destination, status_code=303)
     response.set_cookie(auth_service.SESSION_COOKIE, token, max_age=settings.session_days * 86400, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
   except HTTPException:
-    response = RedirectResponse(settings.frontend_url + "/?login_error=1", status_code=303)
+    response = RedirectResponse(frontend + "/?login_error=1", status_code=303)
   response.delete_cookie(auth_service.STATE_COOKIE, path="/", httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite)
   return response
 

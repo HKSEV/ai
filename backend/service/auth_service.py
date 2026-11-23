@@ -30,10 +30,14 @@ def random_nickname():
   return secrets.choice(["공릉동미식", "노원한입", "상계동맛집", "중계동산책"]) + secrets.choice(["곰", "탐험가", "산책가", "요정"]) + str(secrets.randbelow(10000)).zfill(4)
 
 
-def authorize(db):
+def authorize(db, origin=None):
   if not settings.kakao_rest_api_key:
     raise HTTPException(503, "카카오 로그인 설정이 필요합니다.")
   state = secrets.token_urlsafe(40)
+  frontend = settings.frontend_urls.get(origin)
+  if frontend and frontend != settings.frontend_url:
+    # Bind the return origin to the same single-use state stored in the database.
+    state = f"{state}.{origin}"
   db.execute(delete(OAuthState).where(OAuthState.expires_at < utcnow()))
   db.add(OAuthState(state_hash=digest(state), expires_at=utcnow() + timedelta(minutes=10)))
   db.commit()
@@ -51,6 +55,7 @@ def consume_state(db, state, cookie):
   db.commit()
   if result.rowcount != 1:
     raise HTTPException(400, "로그인 요청이 만료되었거나 이미 사용되었습니다.")
+  return settings.frontend_urls.get(state.partition(".")[2], settings.frontend_url)
 
 
 def kakao_identity(code):

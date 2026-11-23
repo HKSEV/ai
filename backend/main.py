@@ -15,7 +15,7 @@ from service.auth_service import SESSION_COOKIE
 app = FastAPI(title="노원맛집산책 API", version="1.0.0")
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=[settings.frontend_origin],
+  allow_origins=list(settings.frontend_urls),
   allow_credentials=True,
   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allow_headers=["Content-Type", "X-Requested-With"]
@@ -25,8 +25,10 @@ app.add_middleware(
 @app.middleware("http")
 async def protect_requests(request: Request, call_next):
   if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-    allowed_origin = settings.frontend_origin
-    if request.headers.get("X-Requested-With") != "nowon-walk" or request.headers.get("Origin", allowed_origin).rstrip("/") != allowed_origin:
+    origin = request.headers.get("Origin")
+    if request.headers.get("X-Requested-With") != "nowon-walk" or (
+      origin is not None and origin not in settings.frontend_urls
+    ):
       return JSONResponse({"detail": "허용되지 않은 요청입니다."}, status_code=403)
   response = await call_next(request)
   response.headers["X-Content-Type-Options"] = "nosniff"

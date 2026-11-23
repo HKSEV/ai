@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from config.gemini import CONDITION_FEATURE_RULES, CONDITION_PROMPT, RANKING_FACT_RULES, RANKING_PROMPT
+from config.gemini import CONDITION_FEATURE_RULES, CONDITION_PROMPT, RANKING_OUTPUT_RULES, RANKING_PROMPT
 from dto.chat import RecommendationResult, SearchConditions
 from entity.models import PromptRevision, utcnow
 from service.admin_audit import record_admin_action
@@ -31,8 +31,8 @@ def active_prompts(db):
              for name, definition in PROMPTS.items()}
   if CONDITION_FEATURE_RULES not in prompts["conditions"]:
     prompts["conditions"] += "\n\n" + CONDITION_FEATURE_RULES
-  if RANKING_FACT_RULES not in prompts["ranking"]:
-    prompts["ranking"] += "\n\n" + RANKING_FACT_RULES
+  if RANKING_OUTPUT_RULES not in prompts["ranking"]:
+    prompts["ranking"] += "\n\n" + RANKING_OUTPUT_RULES
   return prompts
 
 

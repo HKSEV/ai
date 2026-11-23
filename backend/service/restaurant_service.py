@@ -152,50 +152,20 @@ def minimum_order(available, party_size):
   return {"items": list(grouped.values()), "total": total, "per_person": math.ceil(total / party_size), "party_size": party_size, "basis": "확인된 메뉴 가격으로 계산한 예상액 · 추가 주문/가격 변동 제외"}
 
 
-def confirmed_menus(menus):
-  by_name = {}
-  for menu in menus:
-    if menu["available"] and menu["is_current"]:
-      by_name.setdefault(normalized(menu["name"]), []).append(menu)
-  confirmed = []
-  for entries in by_name.values():
-    priced = [menu for menu in entries if menu["price"] and menu["price"] > 0]
-    prices = {menu["price"] for menu in priced}
-    servings = {menu["servings"] for menu in entries if menu["servings"]}
-    source = (priced or entries)[0].copy()
-    price_conflict = any(menu.get("price_conflict") for menu in entries)
-    source["price"] = next(iter(prices)) if len(prices) == 1 and not price_conflict else None
-    source["servings"] = next(iter(servings)) if len(servings) == 1 else None
-    source.pop("price_conflict", None)
-    confirmed.append(source)
-  return confirmed
-
-
-def order_estimate(menus, party_size):
-  if not menus:
-    return None
-  priced = [menu for menu in menus if menu["price"]]
+def order_estimate(menus, party_size, cuisine):
+  priced = [menu for menu in menus if menu["available"] and menu["is_current"] and menu["price"]]
+  matching = [menu for menu in priced if cuisine and cuisine in menu["name"]]
+  priced = matching or priced
   order = minimum_order([menu for menu in priced if menu["servings"]], party_size)
-  if order:
-    return summarize_order(order["items"], party_size)
-  menu = min(priced, key=lambda item: item["price"]) if priced else menus[0]
-  quantity = math.ceil(party_size / (menu["servings"] or 1)) if party_size else 1
-  return summarize_order([order_item(menu, quantity)], party_size)
-
-
-def order_item(menu, quantity):
-  return {"menu_id": menu["id"], "name": menu["name"], "price": menu["price"], "quantity": quantity, "servings": menu["servings"]}
-
-
-def summarize_order(items, party_size):
-  total = sum(menu["price"] * menu["quantity"] for menu in items) if all(menu["price"] for menu in items) else None
-  basis = "확인된 메뉴 단가 × 주문 수량 · 추가 주문/가격 변동 제외"
-  if total is None:
-    basis = "선택한 메뉴의 단가를 확인할 수 없습니다."
-  elif party_size and any(menu["servings"] is None for menu in items):
-    basis += " · 제공 인원 확인 필요"
-  return {"items": items, "total": total, "per_person": math.ceil(total / party_size) if total is not None and party_size else None,
-          "party_size": party_size, "basis": basis}
+  if order or not priced:
+    return order
+  menu = min(priced, key=lambda item: item["price"])
+  quantity = party_size or 1
+  return {
+    "items": [{"menu_id": menu["id"], "name": menu["name"], "price": menu["price"], "quantity": quantity, "servings": menu["servings"]}],
+    "total": menu["price"] * quantity, "per_person": menu["price"] if party_size else None, "party_size": party_size,
+    "basis": "1인당 같은 메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외" if party_size else "메뉴 1개를 주문하는 예시 · 추가 주문/가격 변동 제외",
+  }
 
 
 def verified_tags(item):

@@ -10,6 +10,7 @@ from sqlalchemy import URL
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
+DEPLOYED_FRONTEND_HOSTS = ("heartbreakkid.co.kr", "www.heartbreakkid.co.kr")
 
 
 def database_url():
@@ -45,9 +46,10 @@ class Settings:
   menu_max_age_days: int = int(os.getenv("DATA_MAX_AGE_DAYS", "30"))
 
   @property
-  def frontend_origin(self) -> str:
+  def frontend_urls(self) -> dict[str, str]:
     url = urlsplit(self.frontend_url)
-    return f"{url.scheme}://{url.netloc}"
+    hosts = DEPLOYED_FRONTEND_HOSTS if url.netloc in DEPLOYED_FRONTEND_HOSTS else (url.netloc,)
+    return {f"{url.scheme}://{host}": url._replace(netloc=host).geturl() for host in hosts}
 
   @property
   def cookie_samesite(self) -> Literal["lax", "none"]:
