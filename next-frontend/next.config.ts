@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const basePath = "/group/one/3";
+const basePath = process.env.DEPLOY_TARGET === "ec2" ? "" : "/group/one/3";
 
 const nextConfig: NextConfig = {
   env: {

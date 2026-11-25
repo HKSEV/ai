@@ -30,57 +30,99 @@ def random_nickname():
   return secrets.choice(["공릉동미식", "노원한입", "상계동맛집", "중계동산책"]) + secrets.choice(["곰", "탐험가", "산책가", "요정"]) + str(secrets.randbelow(10000)).zfill(4)
 
 
-def authorize(db, origin=None):
+def authorize(db, origin=None, frontend_origin=None):
   if not settings.kakao_rest_api_key:
     raise HTTPException(503, "카카오 로그인 설정이 필요합니다.")
+
+  requested_origin = frontend_origin or origin
+  requested_site = settings.frontend_sites.get(requested_origin)
+  if frontend_origin is not None and (
+    requested_site is None or (origin is not None and origin != frontend_origin)
+  ):
+    raise HTTPException(403, "허용되지 않은 로그인 요청입니다.")
+
+  default_site = settings.default_frontend_site
+  site = requested_site or default_site
   state = secrets.token_urlsafe(40)
-  frontend = settings.frontend_urls.get(origin)
-  if frontend and frontend != settings.frontend_url:
-    # Bind the return origin to the same single-use state stored in the database.
-    state = f"{state}.{origin}"
+  if site != default_site:
+    state = f"{state}.{requested_origin}"
+
   db.execute(delete(OAuthState).where(OAuthState.expires_at < utcnow()))
-  db.add(OAuthState(state_hash=digest(state), expires_at=utcnow() + timedelta(minutes=10)))
+  db.add(OAuthState(
+    state_hash=digest(state),
+    expires_at=utcnow() + timedelta(minutes=10),
+  ))
   db.commit()
-  # Kakao presents the app's optional account_email consent on its consent screen.
-  query = urlencode({"client_id": settings.kakao_rest_api_key, "redirect_uri": settings.kakao_redirect_uri, "response_type": "code", "state": state})
+
+  query = urlencode({
+    "client_id": settings.kakao_rest_api_key,
+    "redirect_uri": site.kakao_redirect_uri,
+    "response_type": "code",
+    "state": state,
+  })
   return state, "https://kauth.kakao.com/oauth/authorize?" + query
 
 
 def consume_state(db, state, cookie):
   if not state or not cookie or not secrets.compare_digest(state, cookie):
     raise HTTPException(400, "로그인 요청을 다시 시작해 주세요.")
+
   result = db.execute(delete(OAuthState).where(
-    OAuthState.state_hash == digest(state), OAuthState.expires_at > utcnow(),
+    OAuthState.state_hash == digest(state),
+    OAuthState.expires_at > utcnow(),
   ))
   db.commit()
+
   if result.rowcount != 1:
     raise HTTPException(400, "로그인 요청이 만료되었거나 이미 사용되었습니다.")
-  return settings.frontend_urls.get(state.partition(".")[2], settings.frontend_url)
+
+  frontend_origin = state.partition(".")[2]
+  if not frontend_origin:
+    return settings.default_frontend_site
+
+  site = settings.frontend_sites.get(frontend_origin)
+  if site is None:
+    raise HTTPException(400, "로그인 요청을 다시 시작해 주세요.")
+  return site
 
 
-def kakao_identity(code):
+def kakao_identity(code, redirect_uri=None):
   if not settings.kakao_rest_api_key:
     raise HTTPException(503, "카카오 로그인 설정이 필요합니다.")
-  data = {"grant_type": "authorization_code", "client_id": settings.kakao_rest_api_key, "redirect_uri": settings.kakao_redirect_uri, "code": code}
+
+  data = {
+    "grant_type": "authorization_code",
+    "client_id": settings.kakao_rest_api_key,
+    "redirect_uri": redirect_uri or settings.kakao_redirect_uri,
+    "code": code,
+  }
   if settings.kakao_client_secret:
     data["client_secret"] = settings.kakao_client_secret
+
   try:
     with httpx.Client(timeout=15) as client:
       response = client.post("https://kauth.kakao.com/oauth/token", data=data)
       response.raise_for_status()
       token = response.json()["access_token"]
-      profile = client.get("https://kapi.kakao.com/v2/user/me", headers={"Authorization": "Bearer " + token})
+
+      profile = client.get(
+        "https://kapi.kakao.com/v2/user/me",
+        headers={"Authorization": "Bearer " + token},
+      )
       profile.raise_for_status()
       payload = profile.json()
       identity = payload["id"]
       if not isinstance(identity, int) or isinstance(identity, bool) or identity <= 0:
         raise ValueError("Invalid Kakao identity")
+
       account = payload.get("kakao_account")
       email = account.get("email") if isinstance(account, dict) else None
       email = email.strip() if isinstance(email, str) else None
       return str(identity), email if email and len(email) <= 320 else None
   except (httpx.HTTPError, ValueError, KeyError, TypeError):
-    raise HTTPException(502, "카카오 인증을 완료하지 못했습니다. 다시 시도해 주세요.") from None
+    raise HTTPException(
+      502, "카카오 인증을 완료하지 못했습니다. 다시 시도해 주세요."
+    ) from None
 
 
 def find_or_create_user(db, kakao_id, email=None):

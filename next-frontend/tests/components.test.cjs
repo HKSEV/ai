@@ -65,7 +65,9 @@ test("landing keeps login on failure and reports configuration error", async () 
   setup(Home, {}, false);
   fireEvent.click(screen.getByRole("button", { name: "카카오로 시작하기" }));
   await screen.findByText("카카오 로그인 설정이 필요합니다.");
-  assert.equal(calls[0].url, "/api/auth/kakao/authorize");
+  const authorizeUrl = new URL(calls[0].url, window.location.origin);
+  assert.equal(authorizeUrl.pathname, "/api/auth/kakao/authorize");
+  assert.equal(authorizeUrl.searchParams.get("frontend_origin"), window.location.origin);
   assert.equal(navigation.length, 0);
   assert.equal(screen.getByRole("button", { name: "카카오로 시작하기" }).disabled, false);
 });

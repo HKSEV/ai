@@ -27,10 +27,18 @@ def database_url():
 
 
 @dataclass(frozen=True)
+class FrontendSite:
+  url: str
+  kakao_redirect_uri: str
+
+
+@dataclass(frozen=True)
 class Settings:
   environment: str = os.getenv("APP_ENV", "development")
   database_url: str = database_url()
   frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+  legacy_frontend_url: str = os.getenv("LEGACY_FRONTEND_URL", "").rstrip("/")
+  legacy_kakao_redirect_uri: str = os.getenv("LEGACY_KAKAO_REDIRECT_URI", "")
   kakao_rest_api_key: str = os.getenv("KAKAO_REST_API_KEY", "")
   kakao_client_secret: str = os.getenv("KAKAO_CLIENT_SECRET", "")
   kakao_redirect_uri: str = os.getenv("KAKAO_REDIRECT_URI", frontend_url + "/api/auth/kakao/callback")
@@ -46,10 +54,29 @@ class Settings:
   menu_max_age_days: int = int(os.getenv("DATA_MAX_AGE_DAYS", "30"))
 
   @property
+  def default_frontend_site(self) -> FrontendSite:
+    return FrontendSite(self.frontend_url, self.kakao_redirect_uri)
+
+  @property
+  def frontend_sites(self) -> dict[str, FrontendSite]:
+    sites: dict[str, FrontendSite] = {}
+    for frontend_url, redirect_uri in (
+        (self.frontend_url, self.kakao_redirect_uri),
+        (self.legacy_frontend_url, self.legacy_kakao_redirect_uri),
+    ):
+      if not frontend_url:
+        continue
+      url = urlsplit(frontend_url)
+      hosts = DEPLOYED_FRONTEND_HOSTS if url.netloc in DEPLOYED_FRONTEND_HOSTS else (url.netloc,)
+      redirect_uri = redirect_uri or frontend_url + "/api/auth/kakao/callback"
+      for host in hosts:
+        origin = f"{url.scheme}://{host}"
+        sites.setdefault(origin, FrontendSite(url._replace(netloc=host).geturl(), redirect_uri))
+    return sites
+
+  @property
   def frontend_urls(self) -> dict[str, str]:
-    url = urlsplit(self.frontend_url)
-    hosts = DEPLOYED_FRONTEND_HOSTS if url.netloc in DEPLOYED_FRONTEND_HOSTS else (url.netloc,)
-    return {f"{url.scheme}://{host}": url._replace(netloc=host).geturl() for host in hosts}
+    return {origin: site.url for origin, site in self.frontend_sites.items()}
 
   @property
   def cookie_samesite(self) -> Literal["lax", "none"]:

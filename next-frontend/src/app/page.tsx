@@ -58,8 +58,9 @@ export default function Home() {
   const login = async () => {
     setPending(true);
     try {
+      const params = new URLSearchParams({ frontend_origin: window.location.origin });
       const response = await api<{ authorization_url: string }>(
-        "/api/auth/kakao/authorize"
+        `/api/auth/kakao/authorize?${params.toString()}`
       );
       window.location.assign(response.authorization_url);
     } catch (error) {
